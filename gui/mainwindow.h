@@ -2,8 +2,13 @@
 
 #include "analysisbridge.h"
 
+#include <QItemSelectionRange>
 #include <QMainWindow>
 #include <QModelIndex>
+#include <QPoint>
+#include <QVector>
+
+#include "../io/dat_file.h"
 
 class QLabel;
 class QLineEdit;
@@ -47,7 +52,6 @@ private:
     int ActiveFormulaSelectionLength() const;
     void SetActiveFormulaText(const QString& text);
     void SetActiveFormulaCursorPosition(int position);
-    void SetActiveFormulaSelection(int start, int length);
     void SyncFormulaBarFromInlineEditor();
     void SyncInlineEditorFromFormulaBar();
     QString SelectionReferenceText() const;
@@ -55,10 +59,30 @@ private:
     QString CurrentSelectionFormulaReference() const;
     AnalysisTableSnapshot BuildAnalysisSnapshot() const;
     void ResetCurrentSheet();
-    void UpdateAnalysisPanel();
+    void ImportInFile();
+    void OpenDatFile();
+    void SaveFile();
+    void SaveFileAs();
+    bool SaveFileByPath(const QString& path);
+    bool SaveDatFileAs(const QString& path);
+    bool SaveCsvFileAs(const QString& path);
+    emw::DatDocument BuildCurrentDocument() const;
+    void ApplyDocument(const emw::DatDocument& document);
     void TriggerPlotPreview();
     void TriggerAiAnalysis();
     void ClearSelectedCells();
+    void CopySelectionToClipboard(bool cut);
+    void PasteFromClipboard();
+    void ShowTableContextMenu(const QPoint& pos);
+    bool MergeSelectedCells();
+    bool UnmergeSelectedCells();
+    void ApplyAutoFill(const QItemSelectionRange& source, const QItemSelectionRange& target);
+    void ResizeSelectedCells(int column_delta, int row_delta);
+    void ResetSelectedCellSizes();
+    QItemSelectionRange CurrentSelectionRange() const;
+    QString SelectionClipboardText() const;
+    void UnmergeRangesIntersecting(const QItemSelectionRange& range);
+    int FindMergedRangeContaining(const QModelIndex& index) const;
 
     SpreadsheetView* table_ = nullptr;
     SpreadsheetModel* model_ = nullptr;
@@ -73,11 +97,14 @@ private:
     QGraphicsDropShadowEffect* formula_shadow_ = nullptr;
     QGraphicsDropShadowEffect* table_shadow_ = nullptr;
     AnalysisBridge analysis_bridge_;
-    QString preferred_chart_type_ = QString::fromUtf8("折线图");
+    QString preferred_chart_type_ = QStringLiteral("\u6298\u7ebf\u56fe");
     QString ai_model_name_ = QStringLiteral("qwen2.5:7b");
     QString ai_prompt_text_;
     QString last_plot_result_;
     QString last_ai_result_;
+    QString current_document_path_;
+    int current_sheet_rows_ = 1;
+    int current_sheet_cols_ = 1;
     QModelIndex editing_index_;
     bool formula_editing_ = false;
     bool formula_reference_active_ = false;
@@ -85,6 +112,7 @@ private:
     bool internal_inline_sync_ = false;
     int formula_reference_start_ = -1;
     int formula_reference_length_ = 0;
+    QVector<QItemSelectionRange> merged_ranges_;
 
     enum class FormulaEditorSource {
         None,

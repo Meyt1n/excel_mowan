@@ -4,14 +4,28 @@
 
 #include <QApplication>
 #include <QEvent>
+#include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QWidget>
 
 #include "spreadsheetmodel.h"
+
+using namespace std;
+using std::move;
+
+
+namespace {
+
+constexpr int kFillHandleSize = 8;
+
+}
 
 SpreadsheetView::SpreadsheetView(QWidget* parent) : QTableView(parent) {
     inline_editor_ = new QLineEdit(viewport());
@@ -50,28 +64,41 @@ SpreadsheetView::SpreadsheetView(QWidget* parent) : QTableView(parent) {
             NotifyInlineContextChanged();
         }
     });
+
+    connect(horizontalHeader(), &QHeaderView::sectionResized, this, [this](int, int, int) {
+        UpdateInlineEditorGeometry();
+    });
+    connect(verticalHeader(), &QHeaderView::sectionResized, this, [this](int, int, int) {
+        UpdateInlineEditorGeometry();
+    });
 }
 
 void SpreadsheetView::SetInlineEditStartedCallback(
-    std::function<void(const QModelIndex&, const QString&)> callback
+    function<void(const QModelIndex&, const QString&)> callback
 ) {
-    inline_edit_started_callback_ = std::move(callback);
+    inline_edit_started_callback_ = ::move(callback);
 }
 
 void SpreadsheetView::SetInlineEditTextChangedCallback(
-    std::function<void(const QModelIndex&, const QString&)> callback
+    function<void(const QModelIndex&, const QString&)> callback
 ) {
-    inline_edit_text_changed_callback_ = std::move(callback);
+    inline_edit_text_changed_callback_ = ::move(callback);
 }
 
-void SpreadsheetView::SetInlineEditContextChangedCallback(std::function<void()> callback) {
-    inline_edit_context_changed_callback_ = std::move(callback);
+void SpreadsheetView::SetInlineEditContextChangedCallback(function<void()> callback) {
+    inline_edit_context_changed_callback_ = ::move(callback);
 }
 
 void SpreadsheetView::SetInlineEditFinishedCallback(
-    std::function<void(const QModelIndex&, bool)> callback
+    function<void(const QModelIndex&, bool)> callback
 ) {
-    inline_edit_finished_callback_ = std::move(callback);
+    inline_edit_finished_callback_ = ::move(callback);
+}
+
+void SpreadsheetView::SetFillHandleDraggedCallback(
+    function<void(const QItemSelectionRange&, const QItemSelectionRange&)> callback
+) {
+    fill_handle_dragged_callback_ = ::move(callback);
 }
 
 bool SpreadsheetView::HasInlineEditor() const {
@@ -142,6 +169,10 @@ void SpreadsheetView::CancelInlineEditor() {
     FinishInlineEdit(false);
 }
 
+void SpreadsheetView::StartInlineEdit(const QModelIndex& index, const QString& seed_text, bool replace_all) {
+    BeginInlineEdit(index, seed_text, replace_all);
+}
+
 bool SpreadsheetView::eventFilter(QObject* watched, QEvent* event) {
     if (watched == inline_editor_ && event) {
         if (event->type() == QEvent::KeyPress) {
@@ -178,6 +209,146 @@ bool SpreadsheetView::ShouldStartTypingEdit(QKeyEvent* event) const {
     if (text.isEmpty()) return false;
     const QChar ch = text.at(0);
     return ch.isPrint() && !ch.isNull();
+}
+
+QItemSelectionRange SpreadsheetView::SelectionBounds() const {
+    if (!selectionModel()) return {};
+
+    const QItemSelection selection = selectionModel()->selection();
+    if (selection.size() == 1) {
+        return selection.front();
+    }
+
+    QModelIndexList indexes = selectionModel()->selectedIndexes();
+    if (indexes.isEmpty()) {
+        if (currentIndex().isValid()) {
+            return QItemSelectionRange(currentIndex());
+        }
+        return {};
+    }
+
+    int min_row = indexes.front().row();
+    int max_row = indexes.front().row();
+    int min_col = indexes.front().column();
+    int max_col = indexes.front().column();
+
+    for (const QModelIndex& index : indexes) {
+        min_row = min(min_row, index.row());
+        max_row = max(max_row, index.row());
+        min_col = min(min_col, index.column());
+        max_col = max(max_col, index.column());
+    }
+
+    return QItemSelectionRange(model()->index(min_row, min_col), model()->index(max_row, max_col));
+}
+
+QRect SpreadsheetView::SelectionVisualRect(const QItemSelectionRange& range) const {
+    if (!range.isValid()) return {};
+
+    const QRect top_left = visualRect(range.topLeft());
+    const QRect bottom_right = visualRect(range.bottomRight());
+    if (!top_left.isValid() || !bottom_right.isValid()) return {};
+
+    return top_left.united(bottom_right);
+}
+
+QRect SpreadsheetView::FillHandleRect(const QItemSelectionRange& range) const {
+    const QRect selection_rect = SelectionVisualRect(range);
+    if (!selection_rect.isValid()) return {};
+
+    const int left = selection_rect.right() - kFillHandleSize / 2;
+    const int top = selection_rect.bottom() - kFillHandleSize / 2;
+    return QRect(left, top, kFillHandleSize, kFillHandleSize);
+}
+
+bool SpreadsheetView::IsPointOnFillHandle(const QPoint& pos) const {
+    if (HasInlineEditor()) return false;
+    const QItemSelectionRange range = SelectionBounds();
+    if (!range.isValid()) return false;
+    return FillHandleRect(range).contains(pos);
+}
+
+int SpreadsheetView::ResolveRowAtPosition(int y) const {
+    int row = rowAt(y);
+    if (row >= 0) return row;
+    if (!model()) return -1;
+    if (y < 0) return 0;
+    if (y >= viewport()->height()) return model()->rowCount() - 1;
+    return -1;
+}
+
+int SpreadsheetView::ResolveColumnAtPosition(int x) const {
+    int col = columnAt(x);
+    if (col >= 0) return col;
+    if (!model()) return -1;
+    if (x < 0) return 0;
+    if (x >= viewport()->width()) return model()->columnCount() - 1;
+    return -1;
+}
+
+void SpreadsheetView::UpdateFillDragTarget(const QPoint& pos) {
+    fill_target_range_ = {};
+    if (!fill_drag_active_ || !fill_source_range_.isValid() || !model()) {
+        viewport()->update();
+        return;
+    }
+
+    const int row = ResolveRowAtPosition(pos.y());
+    const int col = ResolveColumnAtPosition(pos.x());
+    if (row < 0 || col < 0) {
+        viewport()->update();
+        return;
+    }
+
+    const int top = fill_source_range_.top();
+    const int bottom = fill_source_range_.bottom();
+    const int left = fill_source_range_.left();
+    const int right = fill_source_range_.right();
+
+    const int vertical_distance =
+        row < top ? top - row : (row > bottom ? row - bottom : 0);
+    const int horizontal_distance =
+        col < left ? left - col : (col > right ? col - right : 0);
+
+    if (vertical_distance == 0 && horizontal_distance == 0) {
+        viewport()->update();
+        return;
+    }
+
+    if (vertical_distance >= horizontal_distance) {
+        if (row < top) {
+            fill_target_range_ =
+                QItemSelectionRange(model()->index(row, left), model()->index(top - 1, right));
+        } else if (row > bottom) {
+            fill_target_range_ =
+                QItemSelectionRange(model()->index(bottom + 1, left), model()->index(row, right));
+        }
+    } else {
+        if (col < left) {
+            fill_target_range_ =
+                QItemSelectionRange(model()->index(top, col), model()->index(bottom, left - 1));
+        } else if (col > right) {
+            fill_target_range_ =
+                QItemSelectionRange(model()->index(top, right + 1), model()->index(bottom, col));
+        }
+    }
+
+    viewport()->update();
+}
+
+void SpreadsheetView::FinishFillDrag(bool apply) {
+    if (!fill_drag_active_) return;
+
+    const QItemSelectionRange source = fill_source_range_;
+    const QItemSelectionRange target = fill_target_range_;
+    fill_drag_active_ = false;
+    fill_source_range_ = {};
+    fill_target_range_ = {};
+    viewport()->update();
+
+    if (apply && source.isValid() && target.isValid() && fill_handle_dragged_callback_) {
+        fill_handle_dragged_callback_(source, target);
+    }
 }
 
 void SpreadsheetView::keyPressEvent(QKeyEvent* event) {
@@ -239,6 +410,15 @@ void SpreadsheetView::mousePressEvent(QMouseEvent* event) {
         return;
     }
 
+    if (event->button() == Qt::LeftButton && IsPointOnFillHandle(event->pos())) {
+        fill_drag_active_ = true;
+        fill_source_range_ = SelectionBounds();
+        fill_target_range_ = {};
+        viewport()->setCursor(Qt::CrossCursor);
+        event->accept();
+        return;
+    }
+
     const QModelIndex clicked = indexAt(event->pos());
     if (HasInlineEditor() && !inline_formula_mode_ && clicked != inline_edit_index_) {
         FinishInlineEdit(true);
@@ -267,15 +447,56 @@ void SpreadsheetView::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void SpreadsheetView::mouseMoveEvent(QMouseEvent* event) {
+    if (event && fill_drag_active_) {
+        UpdateFillDragTarget(event->pos());
+        return;
+    }
     if (event) {
         UpdateHoverCursor(event->pos());
     }
     QTableView::mouseMoveEvent(event);
 }
 
+void SpreadsheetView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event && fill_drag_active_ && event->button() == Qt::LeftButton) {
+        UpdateFillDragTarget(event->pos());
+        FinishFillDrag(true);
+        event->accept();
+        return;
+    }
+    QTableView::mouseReleaseEvent(event);
+}
+
 void SpreadsheetView::leaveEvent(QEvent* event) {
-    viewport()->unsetCursor();
+    if (!fill_drag_active_) {
+        viewport()->unsetCursor();
+    }
     QTableView::leaveEvent(event);
+}
+
+void SpreadsheetView::paintEvent(QPaintEvent* event) {
+    QTableView::paintEvent(event);
+
+    QPainter painter(viewport());
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    const QItemSelectionRange selection = fill_drag_active_ ? fill_source_range_ : SelectionBounds();
+    const QRect selection_rect = SelectionVisualRect(selection);
+    if (selection_rect.isValid() && !HasInlineEditor()) {
+        const QRect handle_rect = FillHandleRect(selection);
+        painter.fillRect(handle_rect, QColor(33, 115, 70));
+        painter.setPen(QPen(Qt::white, 1));
+        painter.drawRect(handle_rect.adjusted(0, 0, -1, -1));
+    }
+
+    if (fill_drag_active_ && fill_target_range_.isValid()) {
+        const QRect target_rect = SelectionVisualRect(fill_target_range_);
+        if (target_rect.isValid()) {
+            painter.fillRect(target_rect, QColor(33, 115, 70, 30));
+            painter.setPen(QPen(QColor(33, 115, 70), 2, Qt::DashLine));
+            painter.drawRect(target_rect.adjusted(0, 0, -1, -1));
+        }
+    }
 }
 
 void SpreadsheetView::resizeEvent(QResizeEvent* event) {
@@ -289,6 +510,10 @@ void SpreadsheetView::scrollContentsBy(int dx, int dy) {
 }
 
 void SpreadsheetView::UpdateHoverCursor(const QPoint& pos) {
+    if (IsPointOnFillHandle(pos)) {
+        viewport()->setCursor(Qt::CrossCursor);
+        return;
+    }
     if (indexAt(pos).isValid()) {
         viewport()->setCursor(Qt::CrossCursor);
         return;
@@ -366,10 +591,10 @@ void SpreadsheetView::UpdateInlineEditorGeometry() {
     }
 
     const int preferred_width =
-        std::max(rect.width() + 40, 28 + inline_editor_->fontMetrics().horizontalAdvance(inline_editor_->text() + "  "));
-    const int width = std::min(viewport()->width() - rect.x() - 2, preferred_width + 100);
-    QRect editor_rect = rect.adjusted(-1, -1, std::max(12, width - rect.width()), 1);
-    editor_rect.setWidth(std::max(rect.width(), editor_rect.width()));
+        max(rect.width() + 40, 28 + inline_editor_->fontMetrics().horizontalAdvance(inline_editor_->text() + "  "));
+    const int width = min(viewport()->width() - rect.x() - 2, preferred_width + 100);
+    QRect editor_rect = rect.adjusted(-1, -1, max(12, width - rect.width()), 1);
+    editor_rect.setWidth(max(rect.width(), editor_rect.width()));
     editor_rect.setHeight(rect.height() + 2);
 
     inline_editor_->setGeometry(editor_rect);

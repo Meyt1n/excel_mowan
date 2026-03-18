@@ -5,17 +5,20 @@
 #include <limits>
 #include <unordered_set>
 
+using namespace std;
+
+
 namespace emw {
 
 static int DependencyKey(const Address& addr) {
     return addr.row * kMaxCols + addr.col;
 }
 
-static std::vector<Address> CollectDependencies(const Node* node) {
-    std::vector<Address> out;
-    std::unordered_set<int> seen;
+static vector<Address> CollectDependencies(const Node* node) {
+    vector<Address> out;
+    unordered_set<int> seen;
 
-    std::function<void(const Node*)> walk = [&](const Node* n) {
+    function<void(const Node*)> walk = [&](const Node* n) {
         if (!n) return;
         switch (n->kind) {
             case Node::Kind::Cell: {
@@ -24,10 +27,10 @@ static std::vector<Address> CollectDependencies(const Node* node) {
                 break;
             }
             case Node::Kind::Range: {
-                int r1 = std::min(n->range.start.row, n->range.end.row);
-                int r2 = std::max(n->range.start.row, n->range.end.row);
-                int c1 = std::min(n->range.start.col, n->range.end.col);
-                int c2 = std::max(n->range.start.col, n->range.end.col);
+                int r1 = min(n->range.start.row, n->range.end.row);
+                int r2 = max(n->range.start.row, n->range.end.row);
+                int c1 = min(n->range.start.col, n->range.end.col);
+                int c2 = max(n->range.start.col, n->range.end.col);
                 for (int r = r1; r <= r2; r++) {
                     for (int c = c1; c <= c2; c++) {
                         Address a{r, c};
@@ -58,54 +61,42 @@ static std::vector<Address> CollectDependencies(const Node* node) {
 
 static bool WouldCreateCycle(
     int key,
-    const std::vector<Address>& new_deps,
-    const std::unordered_map<int, std::vector<Address>>& existing_deps
+    const vector<Address>& new_deps,
+    const function<const vector<Address>*(int)>& get_deps
 ) {
-    std::unordered_map<int, int> state;
+    unordered_set<int> visited;
 
-    auto get_deps = [&](int current) {
-        std::vector<int> deps;
-        if (current == key) {
-            deps.reserve(new_deps.size());
-            for (const auto& addr : new_deps) deps.push_back(DependencyKey(addr));
-            return deps;
-        }
-        auto it = existing_deps.find(current);
-        if (it == existing_deps.end()) return deps;
-        deps.reserve(it->second.size());
-        for (const auto& addr : it->second) deps.push_back(DependencyKey(addr));
-        return deps;
-    };
+    function<bool(int)> reaches_key = [&](int current) {
+        if (current == key) return true;
+        if (!visited.insert(current).second) return false;
 
-    std::function<bool(int)> dfs = [&](int v) {
-        auto it = state.find(v);
-        if (it != state.end()) {
-            if (it->second == 1) return true;
-            if (it->second == 2) return false;
+        const vector<Address>* deps = get_deps ? get_deps(current) : nullptr;
+        if (!deps) return false;
+        for (const auto& dep : *deps) {
+            if (reaches_key(DependencyKey(dep))) return true;
         }
-        state[v] = 1;
-        for (int to : get_deps(v)) {
-            if (dfs(to)) return true;
-        }
-        state[v] = 2;
         return false;
     };
 
-    return dfs(key);
+    for (const auto& dep : new_deps) {
+        visited.clear();
+        if (reaches_key(DependencyKey(dep))) return true;
+    }
+    return false;
 }
 
 static void NormalizeRangeBounds(const Range& range, Address* start, Address* end) {
     *start = Address{
-        std::min(range.start.row, range.end.row),
-        std::min(range.start.col, range.end.col)
+        min(range.start.row, range.end.row),
+        min(range.start.col, range.end.col)
     };
     *end = Address{
-        std::max(range.start.row, range.end.row),
-        std::max(range.start.col, range.end.col)
+        max(range.start.row, range.end.row),
+        max(range.start.col, range.end.col)
     };
 }
 
-static Value CalcRangeSum(const Range& range, const std::function<Value(const Address&)>& get_cell) {
+static Value CalcRangeSum(const Range& range, const function<Value(const Address&)>& get_cell) {
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -121,7 +112,7 @@ static Value CalcRangeSum(const Range& range, const std::function<Value(const Ad
     return Value::Number(sum);
 }
 
-static Value CalcRangeAvg(const Range& range, const std::function<Value(const Address&)>& get_cell) {
+static Value CalcRangeAvg(const Range& range, const function<Value(const Address&)>& get_cell) {
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -142,19 +133,19 @@ static Value CalcRangeAvg(const Range& range, const std::function<Value(const Ad
     return Value::Number(sum / static_cast<double>(count));
 }
 
-static Value CalcRangeMin(const Range& range, const std::function<Value(const Address&)>& get_cell) {
+static Value CalcRangeMin(const Range& range, const function<Value(const Address&)>& get_cell) {
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
 
-    double min_value = std::numeric_limits<double>::infinity();
+    double min_value = numeric_limits<double>::infinity();
     bool has_number = false;
     for (int row = start.row; row <= end.row; row++) {
         for (int col = start.col; col <= end.col; col++) {
             Value v = get_cell(Address{row, col});
             if (v.is_error() || v.is_text()) return Value::Error();
             if (v.is_number()) {
-                min_value = std::min(min_value, v.number);
+                min_value = min(min_value, v.number);
                 has_number = true;
             }
         }
@@ -163,19 +154,19 @@ static Value CalcRangeMin(const Range& range, const std::function<Value(const Ad
     return Value::Number(min_value);
 }
 
-static Value CalcRangeMax(const Range& range, const std::function<Value(const Address&)>& get_cell) {
+static Value CalcRangeMax(const Range& range, const function<Value(const Address&)>& get_cell) {
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
 
-    double max_value = -std::numeric_limits<double>::infinity();
+    double max_value = -numeric_limits<double>::infinity();
     bool has_number = false;
     for (int row = start.row; row <= end.row; row++) {
         for (int col = start.col; col <= end.col; col++) {
             Value v = get_cell(Address{row, col});
             if (v.is_error() || v.is_text()) return Value::Error();
             if (v.is_number()) {
-                max_value = std::max(max_value, v.number);
+                max_value = max(max_value, v.number);
                 has_number = true;
             }
         }
@@ -184,7 +175,7 @@ static Value CalcRangeMax(const Range& range, const std::function<Value(const Ad
     return Value::Number(max_value);
 }
 
-static Value CalcRangeCount(const Range& range, const std::function<Value(const Address&)>& get_cell) {
+static Value CalcRangeCount(const Range& range, const function<Value(const Address&)>& get_cell) {
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -206,16 +197,22 @@ int SpreadsheetGrid::Key(const Address& addr) const {
     return addr.row * kMaxCols + addr.col;
 }
 
-bool SpreadsheetGrid::SetCell(const Address& addr, const std::string& raw, std::string* error) {
+bool SpreadsheetGrid::SetCell(const Address& addr, const string& raw, string* error) {
     if (!addr.is_valid()) {
         if (error) *error = "invalid address";
         return false;
     }
 
-    std::string normalized_raw = NormalizeFormulaInput(raw);
+    string normalized_raw = NormalizeFormulaInput(raw);
     int key = Key(addr);
+    vector<Address> old_deps;
+    auto old_it = cells_.find(key);
+    if (old_it != cells_.end()) old_deps = old_it->second.deps;
+
     if (normalized_raw.empty()) {
+        ReplaceDependencies(key, old_deps, {});
         cells_.erase(key);
+        MarkDependentsDirty(key);
         return true;
     }
 
@@ -224,46 +221,83 @@ bool SpreadsheetGrid::SetCell(const Address& addr, const std::string& raw, std::
     cell.ast.reset();
     cell.deps.clear();
     cell.formula_error = false;
+    cell.eval_error = false;
     cell.dirty = true;
 
     if (cell.cell.is_formula()) {
         Parser parser(cell.cell.raw.substr(1));
         auto ast = parser.Parse();
         if (!ast) {
+            ReplaceDependencies(key, old_deps, {});
             cell.formula_error = true;
-            cell.cell.value = Value::Error();
+            cell.eval_error = false;
+            cell.deps.clear();
+            cell.cell.value = Value::Number(0.0);
             cell.dirty = false;
+            MarkDependentsDirty(key);
             if (error) *error = parser.error().empty() ? "invalid formula" : parser.error();
             return false;
         }
 
         auto deps = CollectDependencies(ast.get());
-        if (WouldCreateCycle(key, deps, BuildDependencyMap())) {
+        auto get_existing_deps = [this](int current) -> const vector<Address>* {
+            auto it = cells_.find(current);
+            if (it == cells_.end()) return nullptr;
+            return &it->second.deps;
+        };
+        if (WouldCreateCycle(key, deps, get_existing_deps)) {
+            ReplaceDependencies(key, old_deps, {});
             cell.formula_error = true;
-            cell.ast = std::move(ast);
-            cell.deps = std::move(deps);
-            cell.cell.value = Value::Error();
+            cell.eval_error = false;
+            cell.ast.reset();
+            cell.deps.clear();
+            cell.cell.value = Value::Number(0.0);
             cell.dirty = false;
+            MarkDependentsDirty(key);
             if (error) *error = "circular reference";
             return false;
         }
 
-        cell.ast = std::move(ast);
-        cell.deps = std::move(deps);
+        ReplaceDependencies(key, old_deps, deps);
+        cell.ast = move(ast);
+        cell.deps = move(deps);
+        MarkDependentsDirty(key);
         return true;
     }
 
+    ReplaceDependencies(key, old_deps, {});
     cell.cell.value = ParseRawValue(normalized_raw);
     cell.dirty = false;
+    cell.eval_error = false;
+    MarkDependentsDirty(key);
     return true;
 }
 
 Value SpreadsheetGrid::GetValue(const Address& addr) {
-    std::unordered_map<int, int> state;
+    unordered_map<int, int> state;
     return EvalCellInternal(addr, state);
 }
 
-std::string SpreadsheetGrid::GetRaw(const Address& addr) const {
+EvaluatedCell SpreadsheetGrid::GetEvaluatedCell(const Address& addr) {
+    if (!addr.is_valid()) return {};
+
+    unordered_map<int, int> state;
+    EvaluatedCell result;
+    result.value = EvalCellInternal(addr, state);
+
+    auto it = cells_.find(Key(addr));
+    if (it != cells_.end()) {
+        result.has_error = it->second.formula_error || it->second.eval_error;
+    }
+    return result;
+}
+
+bool SpreadsheetGrid::HasError(const Address& addr) {
+    if (!addr.is_valid()) return false;
+    return GetEvaluatedCell(addr).has_error;
+}
+
+string SpreadsheetGrid::GetRaw(const Address& addr) const {
     if (!addr.is_valid()) return "";
     int key = Key(addr);
     auto it = cells_.find(key);
@@ -271,29 +305,64 @@ std::string SpreadsheetGrid::GetRaw(const Address& addr) const {
     return it->second.cell.raw;
 }
 
+vector<Address> SpreadsheetGrid::CollectAffectedCells(const vector<Address>& roots) const {
+    vector<Address> affected;
+    vector<int> stack;
+    unordered_set<int> visited;
+    unordered_set<int> recorded;
+
+    for (const auto& root : roots) {
+        if (!root.is_valid()) continue;
+        const int key = Key(root);
+        if (recorded.insert(key).second) {
+            affected.push_back(root);
+        }
+        stack.push_back(key);
+    }
+
+    while (!stack.empty()) {
+        const int current = stack.back();
+        stack.pop_back();
+        if (!visited.insert(current).second) continue;
+
+        auto it = reverse_deps_.find(current);
+        if (it == reverse_deps_.end()) continue;
+
+        for (int dependent_key : it->second) {
+            if (recorded.insert(dependent_key).second) {
+                affected.push_back(Address{dependent_key / kMaxCols, dependent_key % kMaxCols});
+            }
+            stack.push_back(dependent_key);
+        }
+    }
+
+    return affected;
+}
+
 void SpreadsheetGrid::Clear() {
     cells_.clear();
+    reverse_deps_.clear();
 }
 
 void SpreadsheetGrid::RecalcAll() {
     for (auto& kv : cells_) {
         kv.second.dirty = true;
     }
-    std::unordered_map<int, int> state;
+    unordered_map<int, int> state;
     for (auto& kv : cells_) {
         Address addr{kv.first / kMaxCols, kv.first % kMaxCols};
         EvalCellInternal(addr, state);
     }
 }
 
-void SpreadsheetGrid::ForEachCell(const std::function<void(const Address&, const Cell&)>& fn) const {
+void SpreadsheetGrid::ForEachCell(const function<void(const Address&, const Cell&)>& fn) const {
     for (const auto& kv : cells_) {
         Address addr{kv.first / kMaxCols, kv.first % kMaxCols};
         fn(addr, kv.second.cell);
     }
 }
 
-Value SpreadsheetGrid::EvalCellInternal(const Address& addr, std::unordered_map<int, int>& state) {
+Value SpreadsheetGrid::EvalCellInternal(const Address& addr, unordered_map<int, int>& state) {
     if (!addr.is_valid()) return Value::Error();
 
     int key = Key(addr);
@@ -315,7 +384,8 @@ Value SpreadsheetGrid::EvalCellInternal(const Address& addr, std::unordered_map<
 
     if (cell.cell.is_formula()) {
         if (cell.formula_error || !cell.ast) {
-            cell.cell.value = Value::Error();
+            cell.cell.value = Value::Number(0.0);
+            cell.eval_error = false;
             cell.dirty = false;
             state[key] = 2;
             return cell.cell.value;
@@ -341,8 +411,15 @@ Value SpreadsheetGrid::EvalCellInternal(const Address& addr, std::unordered_map<
 
         Evaluator evaluator(ctx);
         cell.cell.value = evaluator.Eval(cell.ast.get());
+        if (cell.cell.value.is_error()) {
+            cell.eval_error = true;
+            cell.cell.value = Value::Number(0.0);
+        } else {
+            cell.eval_error = false;
+        }
     } else {
         cell.cell.value = ParseRawValue(cell.cell.raw);
+        cell.eval_error = false;
     }
 
     cell.dirty = false;
@@ -350,12 +427,44 @@ Value SpreadsheetGrid::EvalCellInternal(const Address& addr, std::unordered_map<
     return cell.cell.value;
 }
 
-std::unordered_map<int, std::vector<Address>> SpreadsheetGrid::BuildDependencyMap() const {
-    std::unordered_map<int, std::vector<Address>> deps;
-    for (const auto& kv : cells_) {
-        deps.emplace(kv.first, kv.second.deps);
+void SpreadsheetGrid::ReplaceDependencies(int key, const vector<Address>& old_deps, const vector<Address>& new_deps) {
+    for (const auto& dep : old_deps) {
+        const int dep_key = DependencyKey(dep);
+        auto it = reverse_deps_.find(dep_key);
+        if (it == reverse_deps_.end()) continue;
+
+        auto& dependents = it->second;
+        dependents.erase(remove(dependents.begin(), dependents.end(), key), dependents.end());
+        if (dependents.empty()) reverse_deps_.erase(it);
     }
-    return deps;
+
+    for (const auto& dep : new_deps) {
+        reverse_deps_[DependencyKey(dep)].push_back(key);
+    }
+}
+
+void SpreadsheetGrid::MarkDependentsDirty(int key) {
+    vector<int> stack;
+    unordered_set<int> visited;
+
+    auto it = reverse_deps_.find(key);
+    if (it == reverse_deps_.end()) return;
+    stack = it->second;
+
+    while (!stack.empty()) {
+        int current = stack.back();
+        stack.pop_back();
+        if (!visited.insert(current).second) continue;
+
+        auto cell_it = cells_.find(current);
+        if (cell_it != cells_.end()) {
+            cell_it->second.dirty = true;
+        }
+
+        auto dep_it = reverse_deps_.find(current);
+        if (dep_it == reverse_deps_.end()) continue;
+        stack.insert(stack.end(), dep_it->second.begin(), dep_it->second.end());
+    }
 }
 
 }

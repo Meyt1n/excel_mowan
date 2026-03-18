@@ -14,16 +14,21 @@ set(SOURCES
     mainwindow.cpp
     spreadsheetmodel.cpp
     spreadsheetview.cpp
+    ../app/table_file_io.cpp
     ../core/basic.cpp
     ../core/formula.cpp
     ../core/spreadsheet.cpp
+    ../io/csv_file.cpp
+    ../io/dat_file.cpp
 )
 
 add_executable(excel_mowan_gui ${SOURCES})
 
 target_include_directories(excel_mowan_gui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../app
     ${CMAKE_CURRENT_SOURCE_DIR}/../core
+    ${CMAKE_CURRENT_SOURCE_DIR}/../io
 )
 
 target_link_libraries(excel_mowan_gui PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)

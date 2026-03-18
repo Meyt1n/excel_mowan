@@ -6,6 +6,9 @@
 #include <QStringList>
 #include <QVector>
 
+using namespace std;
+
+
 struct AnalysisTableSnapshot {
     QString sheet_name;
     QString range_reference;
@@ -29,8 +32,8 @@ struct AiAnalysisRequest {
 
 class AnalysisBridge {
 public:
-    using PlotHandler = std::function<QString(const PlotRequest&)>;
-    using AiHandler = std::function<QString(const AiAnalysisRequest&)>;
+    using PlotHandler = function<QString(const PlotRequest&)>;
+    using AiHandler = function<QString(const AiAnalysisRequest&)>;
 
     void SetPlotHandler(PlotHandler handler);
     void SetAiHandler(AiHandler handler);

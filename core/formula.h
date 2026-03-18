@@ -7,6 +7,9 @@
 
 #include "basic.h"
 
+using namespace std;
+
+
 namespace emw {
 
 struct Range {
@@ -27,28 +30,28 @@ struct Node {
 
     Kind kind = Kind::Number;
     double number = 0.0;
-    std::string text;
+    string text;
     Address cell;
     Range range;
     char op = 0;
-    std::unique_ptr<Node> left;
-    std::unique_ptr<Node> right;
-    std::vector<std::unique_ptr<Node>> args;
+    unique_ptr<Node> left;
+    unique_ptr<Node> right;
+    vector<unique_ptr<Node>> args;
 
-    static std::unique_ptr<Node> MakeNumber(double v);
-    static std::unique_ptr<Node> MakeString(std::string s);
-    static std::unique_ptr<Node> MakeCell(const Address& a);
-    static std::unique_ptr<Node> MakeRange(const Address& a, const Address& b);
-    static std::unique_ptr<Node> MakeUnary(char op, std::unique_ptr<Node> expr);
-    static std::unique_ptr<Node> MakeBinary(char op, std::unique_ptr<Node> lhs, std::unique_ptr<Node> rhs);
-    static std::unique_ptr<Node> MakeFunc(std::string name, std::vector<std::unique_ptr<Node>> args);
+    static unique_ptr<Node> MakeNumber(double v);
+    static unique_ptr<Node> MakeString(string s);
+    static unique_ptr<Node> MakeCell(const Address& a);
+    static unique_ptr<Node> MakeRange(const Address& a, const Address& b);
+    static unique_ptr<Node> MakeUnary(char op, unique_ptr<Node> expr);
+    static unique_ptr<Node> MakeBinary(char op, unique_ptr<Node> lhs, unique_ptr<Node> rhs);
+    static unique_ptr<Node> MakeFunc(string name, vector<unique_ptr<Node>> args);
 };
 
 class Parser {
 public:
-    explicit Parser(const std::string& input);
-    std::unique_ptr<Node> Parse();
-    const std::string& error() const { return error_; }
+    explicit Parser(const string& input);
+    unique_ptr<Node> Parse();
+    const string& error() const { return error_; }
 
 private:
     enum class TokenType {
@@ -70,13 +73,13 @@ private:
 
     struct Token {
         TokenType type = TokenType::Invalid;
-        std::string text;
+        string text;
         double number = 0.0;
     };
 
     class Lexer {
     public:
-        explicit Lexer(std::string input);
+        explicit Lexer(string input);
         Token Peek();
         Token Next();
 
@@ -84,34 +87,34 @@ private:
         Token ReadToken();
         void SkipWhitespace();
 
-        std::string input_;
+        string input_;
         size_t pos_ = 0;
         bool has_peek_ = false;
         Token peek_;
     };
 
-    std::unique_ptr<Node> ParseExpression();
-    std::unique_ptr<Node> ParseTerm();
-    std::unique_ptr<Node> ParseUnary();
-    std::unique_ptr<Node> ParsePrimary();
-    std::unique_ptr<Node> ParseCellOrRange(const std::string& name);
+    unique_ptr<Node> ParseExpression();
+    unique_ptr<Node> ParseTerm();
+    unique_ptr<Node> ParseUnary();
+    unique_ptr<Node> ParsePrimary();
+    unique_ptr<Node> ParseCellOrRange(const string& name);
 
     bool Accept(TokenType type);
     bool Expect(TokenType type, const char* msg);
-    bool IsFunctionName(const std::string& name) const;
+    bool IsFunctionName(const string& name) const;
 
     Lexer lexer_;
     Token cur_;
-    std::string error_;
+    string error_;
 };
 
 struct EvalContext {
-    std::function<Value(const Address&)> get_cell;
-    std::function<Value(const Range&)> eval_range_sum;
-    std::function<Value(const Range&)> eval_range_avg;
-    std::function<Value(const Range&)> eval_range_min;
-    std::function<Value(const Range&)> eval_range_max;
-    std::function<Value(const Range&)> eval_range_count;
+    function<Value(const Address&)> get_cell;
+    function<Value(const Range&)> eval_range_sum;
+    function<Value(const Range&)> eval_range_avg;
+    function<Value(const Range&)> eval_range_min;
+    function<Value(const Range&)> eval_range_max;
+    function<Value(const Range&)> eval_range_count;
 };
 
 class Evaluator {
@@ -122,13 +125,13 @@ public:
 private:
     Value EvalUnary(char op, const Node* expr);
     Value EvalBinary(char op, const Node* lhs, const Node* rhs);
-    Value EvalFunc(const std::string& name, const std::vector<std::unique_ptr<Node>>& args);
+    Value EvalFunc(const string& name, const vector<unique_ptr<Node>>& args);
     Value EnsureNumber(const Value& v) const;
-    std::string NumberToString(double v) const;
+    string NumberToString(double v) const;
 
     EvalContext ctx_;
 };
 
-std::string NormalizeFormulaInput(const std::string& raw);
+string NormalizeFormulaInput(const string& raw);
 
 }

@@ -7,62 +7,65 @@
 #include <sstream>
 #include <unordered_set>
 
+using namespace std;
+
+
 namespace emw {
 
-std::unique_ptr<Node> Node::MakeNumber(double v) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeNumber(double v) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Number;
     n->number = v;
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeString(std::string s) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeString(string s) {
+    auto n = make_unique<Node>();
     n->kind = Kind::String;
-    n->text = std::move(s);
+    n->text = move(s);
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeCell(const Address& a) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeCell(const Address& a) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Cell;
     n->cell = a;
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeRange(const Address& a, const Address& b) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeRange(const Address& a, const Address& b) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Range;
     n->range = Range{a, b};
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeUnary(char op, std::unique_ptr<Node> expr) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeUnary(char op, unique_ptr<Node> expr) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Unary;
     n->op = op;
-    n->left = std::move(expr);
+    n->left = move(expr);
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeBinary(char op, std::unique_ptr<Node> lhs, std::unique_ptr<Node> rhs) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeBinary(char op, unique_ptr<Node> lhs, unique_ptr<Node> rhs) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Binary;
     n->op = op;
-    n->left = std::move(lhs);
-    n->right = std::move(rhs);
+    n->left = move(lhs);
+    n->right = move(rhs);
     return n;
 }
 
-std::unique_ptr<Node> Node::MakeFunc(std::string name, std::vector<std::unique_ptr<Node>> args) {
-    auto n = std::make_unique<Node>();
+unique_ptr<Node> Node::MakeFunc(string name, vector<unique_ptr<Node>> args) {
+    auto n = make_unique<Node>();
     n->kind = Kind::Func;
-    n->text = std::move(name);
-    n->args = std::move(args);
+    n->text = move(name);
+    n->args = move(args);
     return n;
 }
 
-Parser::Lexer::Lexer(std::string input) : input_(std::move(input)) {}
+Parser::Lexer::Lexer(string input) : input_(move(input)) {}
 
 Parser::Token Parser::Lexer::Peek() {
     if (!has_peek_) {
@@ -81,15 +84,15 @@ Parser::Token Parser::Lexer::Next() {
 }
 
 void Parser::Lexer::SkipWhitespace() {
-    while (pos_ < input_.size() && std::isspace(static_cast<unsigned char>(input_[pos_]))) pos_++;
+    while (pos_ < input_.size() && isspace(static_cast<unsigned char>(input_[pos_]))) pos_++;
 }
 
 static bool is_alpha(char ch) {
-    return std::isalpha(static_cast<unsigned char>(ch)) != 0;
+    return isalpha(static_cast<unsigned char>(ch)) != 0;
 }
 
 static bool is_alnum(char ch) {
-    return std::isalnum(static_cast<unsigned char>(ch)) != 0;
+    return isalnum(static_cast<unsigned char>(ch)) != 0;
 }
 
 Parser::Token Parser::Lexer::ReadToken() {
@@ -111,7 +114,7 @@ Parser::Token Parser::Lexer::ReadToken() {
         case ',': pos_++; return Token{TokenType::Comma, ","};
         case '"': {
             pos_++;
-            std::string out;
+            string out;
             while (pos_ < input_.size()) {
                 char c = input_[pos_++];
                 if (c == '"') {
@@ -130,16 +133,16 @@ Parser::Token Parser::Lexer::ReadToken() {
             break;
     }
 
-    if (std::isdigit(static_cast<unsigned char>(ch)) || ch == '.') {
+    if (isdigit(static_cast<unsigned char>(ch)) || ch == '.') {
         size_t start = pos_;
         bool saw_digit = false;
-        while (pos_ < input_.size() && std::isdigit(static_cast<unsigned char>(input_[pos_]))) {
+        while (pos_ < input_.size() && isdigit(static_cast<unsigned char>(input_[pos_]))) {
             pos_++;
             saw_digit = true;
         }
         if (pos_ < input_.size() && input_[pos_] == '.') {
             pos_++;
-            while (pos_ < input_.size() && std::isdigit(static_cast<unsigned char>(input_[pos_]))) {
+            while (pos_ < input_.size() && isdigit(static_cast<unsigned char>(input_[pos_]))) {
                 pos_++;
                 saw_digit = true;
             }
@@ -147,9 +150,9 @@ Parser::Token Parser::Lexer::ReadToken() {
         if (!saw_digit) {
             return Token{TokenType::Invalid, "invalid number"};
         }
-        std::string text = input_.substr(start, pos_ - start);
+        string text = input_.substr(start, pos_ - start);
         char* endptr = nullptr;
-        double val = std::strtod(text.c_str(), &endptr);
+        double val = strtod(text.c_str(), &endptr);
         if (endptr == text.c_str()) {
             return Token{TokenType::Invalid, "invalid number"};
         }
@@ -162,7 +165,7 @@ Parser::Token Parser::Lexer::ReadToken() {
         size_t start = pos_;
         pos_++;
         while (pos_ < input_.size() && is_alnum(input_[pos_])) pos_++;
-        std::string text = input_.substr(start, pos_ - start);
+        string text = input_.substr(start, pos_ - start);
         for (char& c : text) {
             if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
         }
@@ -170,14 +173,14 @@ Parser::Token Parser::Lexer::ReadToken() {
     }
 
     pos_++;
-    return Token{TokenType::Invalid, std::string("invalid char: ") + ch};
+    return Token{TokenType::Invalid, string("invalid char: ") + ch};
 }
 
-Parser::Parser(const std::string& input) : lexer_(input) {
+Parser::Parser(const string& input) : lexer_(input) {
     cur_ = lexer_.Next();
 }
 
-std::unique_ptr<Node> Parser::Parse() {
+unique_ptr<Node> Parser::Parse() {
     auto expr = ParseExpression();
     if (!expr) return nullptr;
     if (cur_.type != TokenType::End && error_.empty()) {
@@ -187,7 +190,7 @@ std::unique_ptr<Node> Parser::Parse() {
     return expr;
 }
 
-std::unique_ptr<Node> Parser::ParseExpression() {
+unique_ptr<Node> Parser::ParseExpression() {
     auto node = ParseTerm();
     if (!node) return nullptr;
     while (cur_.type == TokenType::Plus || cur_.type == TokenType::Minus) {
@@ -195,12 +198,12 @@ std::unique_ptr<Node> Parser::ParseExpression() {
         Accept(cur_.type);
         auto rhs = ParseTerm();
         if (!rhs) return nullptr;
-        node = Node::MakeBinary(op, std::move(node), std::move(rhs));
+        node = Node::MakeBinary(op, move(node), move(rhs));
     }
     return node;
 }
 
-std::unique_ptr<Node> Parser::ParseTerm() {
+unique_ptr<Node> Parser::ParseTerm() {
     auto node = ParseUnary();
     if (!node) return nullptr;
     while (cur_.type == TokenType::Star || cur_.type == TokenType::Slash || cur_.type == TokenType::Percent) {
@@ -210,35 +213,35 @@ std::unique_ptr<Node> Parser::ParseTerm() {
         Accept(cur_.type);
         auto rhs = ParseUnary();
         if (!rhs) return nullptr;
-        node = Node::MakeBinary(op, std::move(node), std::move(rhs));
+        node = Node::MakeBinary(op, move(node), move(rhs));
     }
     return node;
 }
 
-std::unique_ptr<Node> Parser::ParseUnary() {
+unique_ptr<Node> Parser::ParseUnary() {
     if (cur_.type == TokenType::Plus || cur_.type == TokenType::Minus) {
         char op = (cur_.type == TokenType::Plus) ? '+' : '-';
         Accept(cur_.type);
         auto expr = ParseUnary();
         if (!expr) return nullptr;
-        return Node::MakeUnary(op, std::move(expr));
+        return Node::MakeUnary(op, move(expr));
     }
     return ParsePrimary();
 }
 
-std::unique_ptr<Node> Parser::ParsePrimary() {
+unique_ptr<Node> Parser::ParsePrimary() {
     if (cur_.type == TokenType::Number) {
         double v = cur_.number;
         Accept(TokenType::Number);
         return Node::MakeNumber(v);
     }
     if (cur_.type == TokenType::String) {
-        std::string s = cur_.text;
+        string s = cur_.text;
         Accept(TokenType::String);
-        return Node::MakeString(std::move(s));
+        return Node::MakeString(move(s));
     }
     if (cur_.type == TokenType::Identifier) {
-        std::string name = cur_.text;
+        string name = cur_.text;
         Accept(TokenType::Identifier);
         if (cur_.type == TokenType::LParen) {
             if (!IsFunctionName(name)) {
@@ -246,12 +249,12 @@ std::unique_ptr<Node> Parser::ParsePrimary() {
                 return nullptr;
             }
             Accept(TokenType::LParen);
-            std::vector<std::unique_ptr<Node>> args;
+            vector<unique_ptr<Node>> args;
             if (cur_.type != TokenType::RParen) {
                 while (true) {
                     auto arg = ParseExpression();
                     if (!arg) return nullptr;
-                    args.push_back(std::move(arg));
+                    args.push_back(move(arg));
                     if (cur_.type == TokenType::Comma) {
                         Accept(TokenType::Comma);
                         continue;
@@ -260,7 +263,7 @@ std::unique_ptr<Node> Parser::ParsePrimary() {
                 }
             }
             if (!Expect(TokenType::RParen, "expected ')'")) return nullptr;
-            return Node::MakeFunc(std::move(name), std::move(args));
+            return Node::MakeFunc(move(name), move(args));
         }
         return ParseCellOrRange(name);
     }
@@ -276,7 +279,7 @@ std::unique_ptr<Node> Parser::ParsePrimary() {
     return nullptr;
 }
 
-std::unique_ptr<Node> Parser::ParseCellOrRange(const std::string& name) {
+unique_ptr<Node> Parser::ParseCellOrRange(const string& name) {
     Address addr;
     if (!Address::TryParse(name, &addr)) {
         error_ = "invalid cell reference";
@@ -289,7 +292,7 @@ std::unique_ptr<Node> Parser::ParseCellOrRange(const std::string& name) {
             error_ = "range requires cell reference";
             return nullptr;
         }
-        std::string name2 = cur_.text;
+        string name2 = cur_.text;
         Accept(TokenType::Identifier);
         Address addr2;
         if (!Address::TryParse(name2, &addr2)) {
@@ -317,18 +320,18 @@ bool Parser::Expect(TokenType type, const char* msg) {
     return false;
 }
 
-bool Parser::IsFunctionName(const std::string& name) const {
-    static const std::unordered_set<std::string> kFuncs = {
-        "SQRT", "ABS", "SUM", "AVG", "MIN", "MAX", "COUNT", "ROUND", "POW"
+bool Parser::IsFunctionName(const string& name) const {
+    static const unordered_set<string> kFuncs = {
+        "SIN", "COS", "SQRT", "ABS", "SUM", "AVG", "MIN", "MAX", "COUNT", "ROUND", "POW"
     };
     return kFuncs.find(name) != kFuncs.end();
 }
 
-Evaluator::Evaluator(EvalContext ctx) : ctx_(std::move(ctx)) {}
+Evaluator::Evaluator(EvalContext ctx) : ctx_(move(ctx)) {}
 
 static Value EvalRangeFunction(
-    const std::vector<std::unique_ptr<Node>>& args,
-    const std::function<Value(const Range&)>& fn
+    const vector<unique_ptr<Node>>& args,
+    const function<Value(const Range&)>& fn
 ) {
     if (args.size() != 1 || !fn) return Value::Error();
     const Node* arg = args[0].get();
@@ -377,8 +380,8 @@ Value Evaluator::EvalBinary(char op, const Node* lhs, const Node* rhs) {
 
     if (op == '+') {
         if (a.is_text() || b.is_text()) {
-            std::string sa = a.is_text() ? a.text : (a.is_empty() ? "" : NumberToString(a.number));
-            std::string sb = b.is_text() ? b.text : (b.is_empty() ? "" : NumberToString(b.number));
+            string sa = a.is_text() ? a.text : (a.is_empty() ? "" : NumberToString(a.number));
+            string sb = b.is_text() ? b.text : (b.is_empty() ? "" : NumberToString(b.number));
             return Value::Text(sa + sb);
         }
         Value na = EnsureNumber(a);
@@ -399,23 +402,29 @@ Value Evaluator::EvalBinary(char op, const Node* lhs, const Node* rhs) {
             return Value::Number(na.number / nb.number);
         case '%':
             if (nb.number == 0.0) return Value::Error();
-            return Value::Number(std::fmod(na.number, nb.number));
+            return Value::Number(fmod(na.number, nb.number));
         default:
             return Value::Error();
     }
 }
 
-Value Evaluator::EvalFunc(const std::string& name, const std::vector<std::unique_ptr<Node>>& args) {
-    if (name == "SQRT" || name == "ABS") {
+Value Evaluator::EvalFunc(const string& name, const vector<unique_ptr<Node>>& args) {
+    if (name == "SIN" || name == "COS" || name == "SQRT" || name == "ABS") {
         if (args.size() != 1) return Value::Error();
         Value v = Eval(args[0].get());
         Value num = EnsureNumber(v);
         if (num.is_error()) return Value::Error();
+        if (name == "SIN") {
+            return Value::Number(sin(num.number));
+        }
+        if (name == "COS") {
+            return Value::Number(cos(num.number));
+        }
         if (name == "SQRT") {
             if (num.number < 0.0) return Value::Error();
-            return Value::Number(std::sqrt(num.number));
+            return Value::Number(sqrt(num.number));
         }
-        return Value::Number(std::fabs(num.number));
+        return Value::Number(fabs(num.number));
     }
 
     if (name == "SUM") return EvalRangeFunction(args, ctx_.eval_range_sum);
@@ -436,9 +445,9 @@ Value Evaluator::EvalFunc(const std::string& name, const std::vector<std::unique
             digits = static_cast<int>(raw_digits.number);
         }
 
-        double scale = std::pow(10.0, static_cast<double>(digits));
-        if (!std::isfinite(scale) || scale == 0.0) return Value::Error();
-        return Value::Number(std::round(value.number * scale) / scale);
+        double scale = pow(10.0, static_cast<double>(digits));
+        if (!isfinite(scale) || scale == 0.0) return Value::Error();
+        return Value::Number(round(value.number * scale) / scale);
     }
 
     if (name == "POW") {
@@ -446,8 +455,8 @@ Value Evaluator::EvalFunc(const std::string& name, const std::vector<std::unique
         Value base = EnsureNumber(Eval(args[0].get()));
         Value exponent = EnsureNumber(Eval(args[1].get()));
         if (base.is_error() || exponent.is_error()) return Value::Error();
-        double out = std::pow(base.number, exponent.number);
-        if (!std::isfinite(out)) return Value::Error();
+        double out = pow(base.number, exponent.number);
+        if (!isfinite(out)) return Value::Error();
         return Value::Number(out);
     }
 
@@ -460,16 +469,16 @@ Value Evaluator::EnsureNumber(const Value& v) const {
     return Value::Error();
 }
 
-std::string Evaluator::NumberToString(double v) const {
-    std::ostringstream oss;
-    oss << std::setprecision(15) << v;
+string Evaluator::NumberToString(double v) const {
+    ostringstream oss;
+    oss << setprecision(15) << v;
     return oss.str();
 }
 
-std::string NormalizeFormulaInput(const std::string& raw) {
+string NormalizeFormulaInput(const string& raw) {
     if (raw.empty() || raw[0] != '=') return raw;
 
-    std::string normalized = raw;
+    string normalized = raw;
     bool in_string = false;
     for (size_t i = 1; i < normalized.size(); i++) {
         char c = normalized[i];

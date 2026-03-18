@@ -2,6 +2,9 @@
 
 #include <string>
 
+using namespace std;
+
+
 namespace emw {
 
 constexpr int kMaxRows = 32767;
@@ -12,8 +15,8 @@ struct Address {
     int col = -1;
 
     bool is_valid() const;
-    std::string to_string() const;
-    static bool TryParse(const std::string& s, Address* out);
+    string to_string() const;
+    static bool TryParse(const string& s, Address* out);
 };
 
 enum class ValueType {
@@ -23,26 +26,26 @@ enum class ValueType {
     Error
 };
 
-struct Value {
+struct  Value {
     ValueType type = ValueType::Empty;
     double number = 0.0;
-    std::string text;
+    string text;
 
     static Value Empty();
     static Value Number(double v);
-    static Value Text(std::string s);
-    static Value Error(std::string code = "#NA");
+    static Value Text(string s);
+    static Value Error(string code = "#NA");
 
     bool is_error() const;
     bool is_number() const;
     bool is_text() const;
     bool is_empty() const;
 
-    std::string to_string() const;
+    string to_string() const;
 };
 
 struct Cell {
-    std::string raw;
+    string raw;
     Value value = Value::Empty();
 
     bool is_formula() const {
@@ -50,6 +53,6 @@ struct Cell {
     }
 };
 
-Value ParseRawValue(const std::string& raw);
+Value ParseRawValue(const string& raw);
 
 }

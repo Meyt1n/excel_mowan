@@ -3,12 +3,15 @@
 #include <string>
 #include <vector>
 
+using namespace std;
+
+
 namespace emw {
 
 class CsvFile {
 public:
-    static std::vector<std::string> SplitLine(const std::string& line);
-    static std::string JoinLine(const std::vector<std::string>& fields);
+    static vector<string> SplitLine(const string& line);
+    static string JoinLine(const vector<string>& fields);
 };
 
 }

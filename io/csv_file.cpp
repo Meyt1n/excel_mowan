@@ -1,10 +1,13 @@
 #include "csv_file.h"
 
+using namespace std;
+
+
 namespace emw {
 
-std::vector<std::string> CsvFile::SplitLine(const std::string& line) {
-    std::vector<std::string> out;
-    std::string cur;
+vector<string> CsvFile::SplitLine(const string& line) {
+    vector<string> out;
+    string cur;
     bool in_quotes = false;
 
     for (size_t i = 0; i < line.size(); i++) {
@@ -35,11 +38,11 @@ std::vector<std::string> CsvFile::SplitLine(const std::string& line) {
     return out;
 }
 
-std::string CsvFile::JoinLine(const std::vector<std::string>& fields) {
-    std::string out;
+string CsvFile::JoinLine(const vector<string>& fields) {
+    string out;
     for (size_t i = 0; i < fields.size(); i++) {
         if (i > 0) out.push_back(',');
-        const std::string& f = fields[i];
+        const string& f = fields[i];
         bool need_quotes = false;
         for (char ch : f) {
             if (ch == '"' || ch == ',' || ch == '\n' || ch == '\r') {
