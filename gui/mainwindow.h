@@ -61,11 +61,8 @@ private:
     void ResetCurrentSheet();
     void ImportInFile();
     void OpenDatFile();
-    void SaveFile();
-    void SaveFileAs();
-    bool SaveFileByPath(const QString& path);
+    void SaveDatFile();
     bool SaveDatFileAs(const QString& path);
-    bool SaveCsvFileAs(const QString& path);
     emw::DatDocument BuildCurrentDocument() const;
     void ApplyDocument(const emw::DatDocument& document);
     void TriggerPlotPreview();
