@@ -34,6 +34,7 @@ SpreadsheetView::SpreadsheetView(QWidget* parent) : QTableView(parent) {
     inline_editor_->setObjectName("inlineCellEditor");
     inline_editor_->setClearButtonEnabled(false);
     inline_editor_->setAttribute(Qt::WA_MacShowFocusRect, false);
+    inline_editor_->setContextMenuPolicy(Qt::NoContextMenu);
     inline_editor_->setStyleSheet(
         "QLineEdit#inlineCellEditor {"
         "  background: rgba(255, 255, 255, 0.97);"

@@ -6,6 +6,7 @@
 #include "mainwindow.h"
 
 int main(int argc, char** argv) {
+    // 应用启动入口：设置样式、字体和调色板，然后显示主窗口。
     QApplication app(argc, argv);
     app.setApplicationName("Excel Mowan");
     app.setApplicationDisplayName("Excel Mowan");

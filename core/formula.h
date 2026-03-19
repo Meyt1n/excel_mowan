@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <functional>
 #include <memory>
@@ -17,6 +17,7 @@ struct Range {
     Address end;
 };
 
+// 公式表达式的 AST 节点。
 struct Node {
     enum class Kind {
         Number,
@@ -38,6 +39,7 @@ struct Node {
     unique_ptr<Node> right;
     vector<unique_ptr<Node>> args;
 
+    // AST 节点工厂函数。
     static unique_ptr<Node> MakeNumber(double v);
     static unique_ptr<Node> MakeString(string s);
     static unique_ptr<Node> MakeCell(const Address& a);
@@ -47,6 +49,7 @@ struct Node {
     static unique_ptr<Node> MakeFunc(string name, vector<unique_ptr<Node>> args);
 };
 
+// 递归下降解析器：把公式文本解析为 AST。
 class Parser {
 public:
     explicit Parser(const string& input);
@@ -108,6 +111,7 @@ private:
     string error_;
 };
 
+// 由 SpreadsheetGrid 提供的求值回调接口。
 struct EvalContext {
     function<Value(const Address&)> get_cell;
     function<Value(const Range&)> eval_range_sum;
@@ -132,6 +136,7 @@ private:
     EvalContext ctx_;
 };
 
+// 规范化公式输入：将字符串字面量之外的标识符转成大写。
 string NormalizeFormulaInput(const string& raw);
 
 }

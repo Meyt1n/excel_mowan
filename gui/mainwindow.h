@@ -1,12 +1,15 @@
-#pragma once
+﻿#pragma once
 
-#include "analysisbridge.h"
-
+#include <QColor>
+#include <QFutureWatcher>
 #include <QItemSelectionRange>
 #include <QMainWindow>
 #include <QModelIndex>
 #include <QPoint>
+#include <QSet>
 #include <QVector>
+
+#include <memory>
 
 #include "../io/dat_file.h"
 
@@ -17,11 +20,10 @@ class QGraphicsDropShadowEffect;
 class SpreadsheetView;
 class SpreadsheetModel;
 
+// 主窗口：负责菜单、公式栏、表格交互与文件/图表流程。
 class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
-    AnalysisBridge& analysisBridge() { return analysis_bridge_; }
-    const AnalysisBridge& analysisBridge() const { return analysis_bridge_; }
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -57,16 +59,22 @@ private:
     QString SelectionReferenceText() const;
     QModelIndexList SelectedIndexes() const;
     QString CurrentSelectionFormulaReference() const;
-    AnalysisTableSnapshot BuildAnalysisSnapshot() const;
     void ResetCurrentSheet();
     void ImportInFile();
+    void OpenCsvFile();
     void OpenDatFile();
-    void SaveDatFile();
+    void CompareStorageEfficiencyFiles();
+    void SaveFile();
+    void SaveFileAs();
+    void ShowHelpGuide();
+    bool SaveFileByPath(const QString& path);
     bool SaveDatFileAs(const QString& path);
+    bool SaveCsvFileAs(const QString& path);
     emw::DatDocument BuildCurrentDocument() const;
     void ApplyDocument(const emw::DatDocument& document);
-    void TriggerPlotPreview();
-    void TriggerAiAnalysis();
+    void ApplyDocument(const emw::DatDocument& document, std::shared_ptr<emw::SpreadsheetGrid> prepared_grid);
+    void OpenDocumentAsync(const QString& path, bool is_dat);
+    void OnOpenDocumentFinished();
     void ClearSelectedCells();
     void CopySelectionToClipboard(bool cut);
     void PasteFromClipboard();
@@ -76,6 +84,14 @@ private:
     void ApplyAutoFill(const QItemSelectionRange& source, const QItemSelectionRange& target);
     void ResizeSelectedCells(int column_delta, int row_delta);
     void ResetSelectedCellSizes();
+    void SetSelectedTextColor();
+    void ClearSelectedTextColor();
+    void SetSelectedFillColor();
+    void ClearSelectedFillColor();
+    void SortSelectedRange(bool ascending);
+    void PlotSelectionWithPython(const QString& chart_type);
+    QString ExportSelectionCsvForPlot(const QItemSelectionRange& range) const;
+    QString ResolvePlotScriptPath() const;
     QItemSelectionRange CurrentSelectionRange() const;
     QString SelectionClipboardText() const;
     void UnmergeRangesIntersecting(const QItemSelectionRange& range);
@@ -93,15 +109,11 @@ private:
     QLabel* value_type_label_ = nullptr;
     QGraphicsDropShadowEffect* formula_shadow_ = nullptr;
     QGraphicsDropShadowEffect* table_shadow_ = nullptr;
-    AnalysisBridge analysis_bridge_;
-    QString preferred_chart_type_ = QStringLiteral("\u6298\u7ebf\u56fe");
-    QString ai_model_name_ = QStringLiteral("qwen2.5:7b");
-    QString ai_prompt_text_;
-    QString last_plot_result_;
-    QString last_ai_result_;
     QString current_document_path_;
     int current_sheet_rows_ = 1;
     int current_sheet_cols_ = 1;
+    QColor last_text_color_;
+    QColor last_fill_color_;
     QModelIndex editing_index_;
     bool formula_editing_ = false;
     bool formula_reference_active_ = false;
@@ -110,6 +122,18 @@ private:
     int formula_reference_start_ = -1;
     int formula_reference_length_ = 0;
     QVector<QItemSelectionRange> merged_ranges_;
+    QSet<int> resized_row_sections_;
+    QSet<int> resized_col_sections_;
+
+    struct OpenDocumentResult {
+        bool ok = false;
+        QString path;
+        QString error;
+        std::shared_ptr<emw::DatDocument> document;
+        std::shared_ptr<emw::SpreadsheetGrid> prepared_grid;
+    };
+    QFutureWatcher<OpenDocumentResult>* open_watcher_ = nullptr;
+    bool open_in_progress_ = false;
 
     enum class FormulaEditorSource {
         None,

@@ -8,7 +8,7 @@
 #include <sstream>
 
 #include "../core/basic.h"
-#include "../io/csv_file.h"
+#include "csv_file.h"
 
 using namespace std;
 
@@ -17,6 +17,8 @@ namespace emw_app {
 
 namespace {
 
+
+// 将二维字符串表格填充到 SpreadsheetGrid 中，并设置行列数。会清空原有数据。
 void PopulateGrid(const vector<vector<string>>& table, emw::SpreadsheetGrid& grid, int& rows, int& cols) {
     grid.Clear();
     rows = static_cast<int>(table.size());
@@ -29,6 +31,7 @@ void PopulateGrid(const vector<vector<string>>& table, emw::SpreadsheetGrid& gri
     }
 }
 
+// 格式化单元格值为纯文本，适合 WriteGridValuesPlain 输出。数字保留两位小数，错误和空值显示为 "0.00"，文本原样输出。
 string FormatPlainValue(const emw::Value& value) {
     if (value.is_number()) {
         double number = value.number;
@@ -44,6 +47,7 @@ string FormatPlainValue(const emw::Value& value) {
 
 }  // namespace
 
+// 读入每一行
 bool ReadAllLines(istream& in, vector<string>& lines) {
     string line;
     while (getline(in, line)) {
@@ -52,12 +56,14 @@ bool ReadAllLines(istream& in, vector<string>& lines) {
     return !lines.empty();
 }
 
+// 读入.in文件
 bool LoadInToGrid(const string& path, emw::SpreadsheetGrid& grid, int& rows, int& cols) {
     ifstream in(filesystem::u8path(path));
     if (!in) return false;
     return LoadSizedTextGrid(in, grid, rows, cols);
 }
 
+// 读入csv文件
 bool LoadCsvLinesToGrid(const vector<string>& lines, emw::SpreadsheetGrid& grid, int& rows, int& cols) {
     if (lines.empty()) {
         grid.Clear();
@@ -69,9 +75,9 @@ bool LoadCsvLinesToGrid(const vector<string>& lines, emw::SpreadsheetGrid& grid,
     vector<vector<string>> table;
     size_t max_cols = 0;
     for (const auto& line : lines) {
-        auto fields = emw::CsvFile::SplitLine(line);
+        auto fields = emw::CsvFile::SplitLine(line);// 按逗号分割
         max_cols = max(max_cols, fields.size());
-        table.push_back(move(fields));
+        table.push_back(move(fields));// 构建二维字符串表格
     }
 
     if (table.size() > (size_t)emw::kMaxRows) table.resize(emw::kMaxRows);
@@ -98,7 +104,7 @@ bool LoadSizedTextGrid(istream& in, emw::SpreadsheetGrid& grid, int& rows, int& 
     string header;
     if (!getline(in, header)) return false;
 
-    // The acceptance data may use either spaces or commas in the first line.
+    // 兼容评测数据：首行尺寸信息可能用空格或逗号分隔。
     for (char& ch : header) {
         if (ch == ',' || ch == '\t') ch = ' ';
     }
@@ -135,6 +141,24 @@ bool WriteGridValuesCsv(ostream& out, emw::SpreadsheetGrid& grid, int rows, int 
             emw::Address addr{r, c};
             emw::Value v = grid.GetValue(addr);
             fields.push_back(v.to_string());
+        }
+        out << emw::CsvFile::JoinLine(fields) << "\n";
+    }
+    return true;
+}
+
+bool WriteGridRawCsv(const string& path, const emw::SpreadsheetGrid& grid, int rows, int cols) {
+    ofstream out(filesystem::u8path(path));
+    if (!out) return false;
+    return WriteGridRawCsv(out, grid, rows, cols);
+}
+
+bool WriteGridRawCsv(ostream& out, const emw::SpreadsheetGrid& grid, int rows, int cols) {
+    for (int r = 0; r < rows; ++r) {
+        vector<string> fields;
+        fields.reserve(cols);
+        for (int c = 0; c < cols; ++c) {
+            fields.push_back(grid.GetRaw(emw::Address{r, c}));
         }
         out << emw::CsvFile::JoinLine(fields) << "\n";
     }

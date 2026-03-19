@@ -15,6 +15,7 @@ static int DependencyKey(const Address& addr) {
 }
 
 static vector<Address> CollectDependencies(const Node* node) {
+    // 从 AST 中收集所有单元格/范围依赖。
     vector<Address> out;
     unordered_set<int> seen;
 
@@ -64,6 +65,7 @@ static bool WouldCreateCycle(
     const vector<Address>& new_deps,
     const function<const vector<Address>*(int)>& get_deps
 ) {
+    // 判断新增依赖是否会回到自身，避免循环引用。
     unordered_set<int> visited;
 
     function<bool(int)> reaches_key = [&](int current) {
@@ -86,6 +88,7 @@ static bool WouldCreateCycle(
 }
 
 static void NormalizeRangeBounds(const Range& range, Address* start, Address* end) {
+    // 把范围规范成左上到右下。
     *start = Address{
         min(range.start.row, range.end.row),
         min(range.start.col, range.end.col)
@@ -97,6 +100,7 @@ static void NormalizeRangeBounds(const Range& range, Address* start, Address* en
 }
 
 static Value CalcRangeSum(const Range& range, const function<Value(const Address&)>& get_cell) {
+    // SUM：范围内所有数字相加。
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -113,6 +117,7 @@ static Value CalcRangeSum(const Range& range, const function<Value(const Address
 }
 
 static Value CalcRangeAvg(const Range& range, const function<Value(const Address&)>& get_cell) {
+    // AVG：范围内数字平均值（无数字则报错）。
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -129,11 +134,12 @@ static Value CalcRangeAvg(const Range& range, const function<Value(const Address
             }
         }
     }
-    if (count == 0) return Value::Error();
+    if (count == 0) return Value::Number(0.0);
     return Value::Number(sum / static_cast<double>(count));
 }
 
 static Value CalcRangeMin(const Range& range, const function<Value(const Address&)>& get_cell) {
+    // MIN：范围内最小数字（无数字则报错）。
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -155,6 +161,7 @@ static Value CalcRangeMin(const Range& range, const function<Value(const Address
 }
 
 static Value CalcRangeMax(const Range& range, const function<Value(const Address&)>& get_cell) {
+    // MAX：范围内最大数字（无数字则报错）。
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -176,6 +183,7 @@ static Value CalcRangeMax(const Range& range, const function<Value(const Address
 }
 
 static Value CalcRangeCount(const Range& range, const function<Value(const Address&)>& get_cell) {
+    // COUNT：范围内数字数量（遇到文本/错误则报错）。
     Address start;
     Address end;
     NormalizeRangeBounds(range, &start, &end);
@@ -198,6 +206,7 @@ int SpreadsheetGrid::Key(const Address& addr) const {
 }
 
 bool SpreadsheetGrid::SetCell(const Address& addr, const string& raw, string* error) {
+    // 写入原始值或公式，更新依赖关系。
     if (!addr.is_valid()) {
         if (error) *error = "invalid address";
         return false;
@@ -274,11 +283,13 @@ bool SpreadsheetGrid::SetCell(const Address& addr, const string& raw, string* er
 }
 
 Value SpreadsheetGrid::GetValue(const Address& addr) {
+    // 每次查询都走内部缓存逻辑。
     unordered_map<int, int> state;
     return EvalCellInternal(addr, state);
 }
 
 EvaluatedCell SpreadsheetGrid::GetEvaluatedCell(const Address& addr) {
+    // 同时返回值和错误标记。
     if (!addr.is_valid()) return {};
 
     unordered_map<int, int> state;
@@ -306,6 +317,7 @@ string SpreadsheetGrid::GetRaw(const Address& addr) const {
 }
 
 vector<Address> SpreadsheetGrid::CollectAffectedCells(const vector<Address>& roots) const {
+    // 从根节点向下游遍历，得到需要刷新的单元格。
     vector<Address> affected;
     vector<int> stack;
     unordered_set<int> visited;
@@ -340,11 +352,13 @@ vector<Address> SpreadsheetGrid::CollectAffectedCells(const vector<Address>& roo
 }
 
 void SpreadsheetGrid::Clear() {
+    // 清空稀疏存储与依赖图。
     cells_.clear();
     reverse_deps_.clear();
 }
 
 void SpreadsheetGrid::RecalcAll() {
+    // 标记全部 dirty，并强制重新计算一次。
     for (auto& kv : cells_) {
         kv.second.dirty = true;
     }
@@ -356,6 +370,7 @@ void SpreadsheetGrid::RecalcAll() {
 }
 
 void SpreadsheetGrid::ForEachCell(const function<void(const Address&, const Cell&)>& fn) const {
+    // 遍历所有非空单元格。
     for (const auto& kv : cells_) {
         Address addr{kv.first / kMaxCols, kv.first % kMaxCols};
         fn(addr, kv.second.cell);
@@ -363,6 +378,7 @@ void SpreadsheetGrid::ForEachCell(const function<void(const Address&, const Cell
 }
 
 Value SpreadsheetGrid::EvalCellInternal(const Address& addr, unordered_map<int, int>& state) {
+    // 递归求值，state 用于检测循环并复用缓存。
     if (!addr.is_valid()) return Value::Error();
 
     int key = Key(addr);
@@ -428,6 +444,7 @@ Value SpreadsheetGrid::EvalCellInternal(const Address& addr, unordered_map<int, 
 }
 
 void SpreadsheetGrid::ReplaceDependencies(int key, const vector<Address>& old_deps, const vector<Address>& new_deps) {
+    // 先移除旧依赖，再登记新依赖。
     for (const auto& dep : old_deps) {
         const int dep_key = DependencyKey(dep);
         auto it = reverse_deps_.find(dep_key);
@@ -444,6 +461,7 @@ void SpreadsheetGrid::ReplaceDependencies(int key, const vector<Address>& old_de
 }
 
 void SpreadsheetGrid::MarkDependentsDirty(int key) {
+    // 从反向依赖表向下游标记 dirty。
     vector<int> stack;
     unordered_set<int> visited;
 

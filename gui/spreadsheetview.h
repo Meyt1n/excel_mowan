@@ -17,6 +17,7 @@ class QPaintEvent;
 class QResizeEvent;
 class QWidget;
 
+// 自定义表格视图：支持行内编辑与填充柄拖拽。
 class SpreadsheetView : public QTableView {
 public:
     explicit SpreadsheetView(QWidget* parent = nullptr);

@@ -11,10 +11,12 @@ using namespace std;
 namespace emw {
 
 bool Address::is_valid() const {
+    // 允许的行列范围由 kMaxRows/kMaxCols 限定。
     return row >= 0 && row < kMaxRows && col >= 0 && col < kMaxCols;
 }
 
 string Address::to_string() const {
+    // 列号转字母，再拼上 1-based 行号。
     if (!is_valid()) return "";
     int c = col;
     string letters;
@@ -33,6 +35,7 @@ static bool is_upper_alpha(char ch) {
 }
 
 bool Address::TryParse(const string& s, Address* out) {
+    // 解析 "A1" 这种格式：先字母后数字。
     if (!out) return false;
 
     int i = 0;
@@ -110,6 +113,7 @@ string Value::to_string() const {
 }
 
 Value ParseRawValue(const string& raw) {
+    // 先裁剪空白，再尝试转成数字。
     if (raw.empty()) return Value::Empty();
 
     size_t start = 0;

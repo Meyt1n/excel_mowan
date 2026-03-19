@@ -6,6 +6,7 @@ using namespace std;
 namespace emw {
 
 vector<string> CsvFile::SplitLine(const string& line) {
+    // 逐字符状态机解析：支持引号字段与双引号转义。
     vector<string> out;
     string cur;
     bool in_quotes = false;
@@ -39,6 +40,7 @@ vector<string> CsvFile::SplitLine(const string& line) {
 }
 
 string CsvFile::JoinLine(const vector<string>& fields) {
+    // 按需加引号：字段包含逗号/引号/换行时使用 CSV 引号规则。
     string out;
     for (size_t i = 0; i < fields.size(); i++) {
         if (i > 0) out.push_back(',');

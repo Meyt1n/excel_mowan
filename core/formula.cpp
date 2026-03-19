@@ -67,6 +67,8 @@ unique_ptr<Node> Node::MakeFunc(string name, vector<unique_ptr<Node>> args) {
 
 Parser::Lexer::Lexer(string input) : input_(move(input)) {}
 
+
+//缓存下一个token，不移动,判断下一步该怎么走
 Parser::Token Parser::Lexer::Peek() {
     if (!has_peek_) {
         peek_ = ReadToken();
@@ -75,6 +77,7 @@ Parser::Token Parser::Lexer::Peek() {
     return peek_;
 }
 
+//真正移动到下一个token
 Parser::Token Parser::Lexer::Next() {
     if (has_peek_) {
         has_peek_ = false;
@@ -87,15 +90,18 @@ void Parser::Lexer::SkipWhitespace() {
     while (pos_ < input_.size() && isspace(static_cast<unsigned char>(input_[pos_]))) pos_++;
 }
 
+// 识别字母，用于标识符解析。
 static bool is_alpha(char ch) {
     return isalpha(static_cast<unsigned char>(ch)) != 0;
 }
 
+// 识别字母或数字，用于标识符解析。
 static bool is_alnum(char ch) {
     return isalnum(static_cast<unsigned char>(ch)) != 0;
 }
 
 Parser::Token Parser::Lexer::ReadToken() {
+    // 把输入流切成 token（数字、字符串、标识符、符号等）。
     SkipWhitespace();
     if (pos_ >= input_.size()) {
         return Token{TokenType::End, ""};
@@ -176,11 +182,13 @@ Parser::Token Parser::Lexer::ReadToken() {
     return Token{TokenType::Invalid, string("invalid char: ") + ch};
 }
 
+//  
 Parser::Parser(const string& input) : lexer_(input) {
     cur_ = lexer_.Next();
 }
 
 unique_ptr<Node> Parser::Parse() {
+    // 从表达式开始解析，期望读到结尾。
     auto expr = ParseExpression();
     if (!expr) return nullptr;
     if (cur_.type != TokenType::End && error_.empty()) {
@@ -191,6 +199,7 @@ unique_ptr<Node> Parser::Parse() {
 }
 
 unique_ptr<Node> Parser::ParseExpression() {
+    // 处理加减优先级。
     auto node = ParseTerm();
     if (!node) return nullptr;
     while (cur_.type == TokenType::Plus || cur_.type == TokenType::Minus) {
@@ -204,6 +213,7 @@ unique_ptr<Node> Parser::ParseExpression() {
 }
 
 unique_ptr<Node> Parser::ParseTerm() {
+    // 处理乘除取模优先级。
     auto node = ParseUnary();
     if (!node) return nullptr;
     while (cur_.type == TokenType::Star || cur_.type == TokenType::Slash || cur_.type == TokenType::Percent) {
@@ -219,6 +229,7 @@ unique_ptr<Node> Parser::ParseTerm() {
 }
 
 unique_ptr<Node> Parser::ParseUnary() {
+    // 处理一元正负号。
     if (cur_.type == TokenType::Plus || cur_.type == TokenType::Minus) {
         char op = (cur_.type == TokenType::Plus) ? '+' : '-';
         Accept(cur_.type);
@@ -230,6 +241,7 @@ unique_ptr<Node> Parser::ParseUnary() {
 }
 
 unique_ptr<Node> Parser::ParsePrimary() {
+    // 处理字面量、单元格、函数调用和括号。
     if (cur_.type == TokenType::Number) {
         double v = cur_.number;
         Accept(TokenType::Number);
@@ -280,6 +292,7 @@ unique_ptr<Node> Parser::ParsePrimary() {
 }
 
 unique_ptr<Node> Parser::ParseCellOrRange(const string& name) {
+    // 解析 A1 或 A1:B3 这种引用。
     Address addr;
     if (!Address::TryParse(name, &addr)) {
         error_ = "invalid cell reference";
@@ -306,6 +319,7 @@ unique_ptr<Node> Parser::ParseCellOrRange(const string& name) {
 }
 
 bool Parser::Accept(TokenType type) {
+    // 消费一个匹配的 token。
     if (cur_.type != type) return false;
     cur_ = lexer_.Next();
     if (cur_.type == TokenType::Invalid && error_.empty()) {
@@ -315,12 +329,14 @@ bool Parser::Accept(TokenType type) {
 }
 
 bool Parser::Expect(TokenType type, const char* msg) {
+    // 强制匹配，失败时记录错误信息。
     if (Accept(type)) return true;
     if (error_.empty()) error_ = msg;
     return false;
 }
 
 bool Parser::IsFunctionName(const string& name) const {
+    // 仅允许白名单内的函数名。
     static const unordered_set<string> kFuncs = {
         "SIN", "COS", "SQRT", "ABS", "SUM", "AVG", "MIN", "MAX", "COUNT", "ROUND", "POW"
     };
@@ -329,6 +345,7 @@ bool Parser::IsFunctionName(const string& name) const {
 
 Evaluator::Evaluator(EvalContext ctx) : ctx_(move(ctx)) {}
 
+// 区域函数执行器，处理类似 SUM(A1:B3) 这种只接收一个区域作为参数的函数。
 static Value EvalRangeFunction(
     const vector<unique_ptr<Node>>& args,
     const function<Value(const Range&)>& fn
@@ -339,7 +356,64 @@ static Value EvalRangeFunction(
     return fn(arg->range);
 }
 
+struct NumericAggregate {
+    double sum = 0.0;
+    long long count = 0;
+};
+
+// 更新极值（最小值或最大值），根据 take_min 参数决定是更新最小值还是最大值。
+static void UpdateExtremum(double candidate, bool take_min, double* current, bool* has_value) {
+    if (!current || !has_value) return;
+    if (!*has_value) {
+        *current = candidate;
+        *has_value = true;
+        return;
+    }
+    *current = take_min ? min(*current, candidate) : max(*current, candidate);
+}
+
+// 规范化区域地址，确保 start 是左上角，end 是右下角。
+static void NormalizeRange(const Range& range, Address* start, Address* end) {
+    if (!start || !end) return;
+    *start = Address{
+        min(range.start.row, range.end.row),
+        min(range.start.col, range.end.col)
+    };
+    *end = Address{
+        max(range.start.row, range.end.row),
+        max(range.start.col, range.end.col)
+    };
+}
+
+// 累积区域内的数值，更新 aggregate 的 sum 和 count。遇到错误或文本时返回 false。
+static bool AccumulateRangeValues(
+    const Range& range,
+    const function<Value(const Address&)>& get_cell,
+    NumericAggregate* aggregate
+) {
+    if (!get_cell || !aggregate) return false;
+
+    Address start;
+    Address end;
+    NormalizeRange(range, &start, &end);
+
+    for (int row = start.row; row <= end.row; ++row) {
+        for (int col = start.col; col <= end.col; ++col) {
+            const Value value = get_cell(Address{row, col});
+            if (value.is_error() || value.is_text()) return false;
+            if (!value.is_number()) continue;
+
+            aggregate->sum += value.number;
+            aggregate->count++;
+        }
+    }
+
+    return true;
+}
+
+// 评估一个节点，返回结果值。根据节点类型递归求值。
 Value Evaluator::Eval(const Node* node) {
+    // 根据节点类型递归求值。
     if (!node) return Value::Error();
     switch (node->kind) {
         case Node::Kind::Number:
@@ -362,7 +436,9 @@ Value Evaluator::Eval(const Node* node) {
     }
 }
 
+// 评估一元运算，处理正负号。首先求值子表达式，然后确保结果是数字（空值视为 0），最后应用运算符。
 Value Evaluator::EvalUnary(char op, const Node* expr) {
+    // 处理一元正负号。
     Value v = Eval(expr);
     if (v.is_error()) return v;
     Value num = EnsureNumber(v);
@@ -372,7 +448,9 @@ Value Evaluator::EvalUnary(char op, const Node* expr) {
     return Value::Number(n);
 }
 
+// 评估二元运算，处理加减乘除取模。首先求值左右子表达式，如果是加法且任一操作数是文本，则进行字符串拼接。否则确保两边都是数字（空值视为 0），最后应用运算符。
 Value Evaluator::EvalBinary(char op, const Node* lhs, const Node* rhs) {
+    // 处理二元运算；'+' 支持字符串拼接。
     Value a = Eval(lhs);
     if (a.is_error()) return a;
     Value b = Eval(rhs);
@@ -408,7 +486,9 @@ Value Evaluator::EvalBinary(char op, const Node* lhs, const Node* rhs) {
     }
 }
 
+// 评估函数调用。支持少量内建函数，范围函数由上下文回调。根据函数名和参数类型执行相应的计算。
 Value Evaluator::EvalFunc(const string& name, const vector<unique_ptr<Node>>& args) {
+    // 支持少量内建函数，范围函数由上下文回调。
     if (name == "SIN" || name == "COS" || name == "SQRT" || name == "ABS") {
         if (args.size() != 1) return Value::Error();
         Value v = Eval(args[0].get());
@@ -427,11 +507,92 @@ Value Evaluator::EvalFunc(const string& name, const vector<unique_ptr<Node>>& ar
         return Value::Number(fabs(num.number));
     }
 
-    if (name == "SUM") return EvalRangeFunction(args, ctx_.eval_range_sum);
-    if (name == "AVG") return EvalRangeFunction(args, ctx_.eval_range_avg);
-    if (name == "MIN") return EvalRangeFunction(args, ctx_.eval_range_min);
-    if (name == "MAX") return EvalRangeFunction(args, ctx_.eval_range_max);
-    if (name == "COUNT") return EvalRangeFunction(args, ctx_.eval_range_count);
+    if (name == "SUM") {
+        if (args.empty()) return Value::Error();
+
+        NumericAggregate aggregate;
+        for (const auto& arg : args) {
+            const Node* node = arg.get();
+            if (node->kind == Node::Kind::Range) {
+                if (!AccumulateRangeValues(node->range, ctx_.get_cell, &aggregate)) {
+                    return Value::Error();
+                }
+                continue;
+            }
+
+            const Value value = Eval(node);
+            if (value.is_error() || value.is_text()) return Value::Error();
+            if (!value.is_number()) continue;
+
+            aggregate.sum += value.number;
+            aggregate.count++;
+        }
+
+        return Value::Number(aggregate.sum);
+    }
+    if (name == "AVG") {
+        if (args.empty()) return Value::Error();
+
+        NumericAggregate aggregate;
+        for (const auto& arg : args) {
+            const Node* node = arg.get();
+            if (node->kind == Node::Kind::Range) {
+                if (!AccumulateRangeValues(node->range, ctx_.get_cell, &aggregate)) {
+                    return Value::Error();
+                }
+                continue;
+            }
+
+            const Value value = Eval(node);
+            if (value.is_error() || value.is_text()) return Value::Error();
+            if (!value.is_number()) continue;
+
+            aggregate.sum += value.number;
+            aggregate.count++;
+        }
+
+        if (aggregate.count == 0) return Value::Number(0.0);
+        return Value::Number(aggregate.sum / static_cast<double>(aggregate.count));
+    }
+    if (name == "MIN" || name == "MAX") {
+        if (args.empty()) return Value::Error();
+        const bool take_min = (name == "MIN");
+
+        double extremum = 0.0;
+        bool has_number = false;
+
+        for (const auto& arg : args) {
+            const Node* node = arg.get();
+            if (node->kind == Node::Kind::Range) {
+                const auto& range_fn = take_min ? ctx_.eval_range_min : ctx_.eval_range_max;
+                if (!range_fn) return Value::Error();
+                const Value range_value = range_fn(node->range);
+                if (range_value.is_error() || !range_value.is_number()) return Value::Error();
+                UpdateExtremum(range_value.number, take_min, &extremum, &has_number);
+                continue;
+            }
+
+            const Value value = Eval(node);
+            if (value.is_error() || value.is_text()) return Value::Error();
+            if (!value.is_number()) continue;
+
+            UpdateExtremum(value.number, take_min, &extremum, &has_number);
+        }
+
+        if (!has_number) return Value::Error();
+        return Value::Number(extremum);
+    }
+    if (name == "COUNT") {
+        if (args.size() != 1) return Value::Error();
+        const Node* arg = args[0].get();
+        if (arg->kind == Node::Kind::Range) {
+            return EvalRangeFunction(args, ctx_.eval_range_count);
+        }
+        Value v = Eval(arg);
+        if (v.is_error() || v.is_text()) return Value::Error();
+        if (v.is_number()) return Value::Number(1.0);
+        return Value::Number(0.0);
+    }
 
     if (name == "ROUND") {
         if (args.size() != 1 && args.size() != 2) return Value::Error();
@@ -463,7 +624,9 @@ Value Evaluator::EvalFunc(const string& name, const vector<unique_ptr<Node>>& ar
     return Value::Error();
 }
 
+// 处理单元格是空的情况，把空值当作 0，其余非数字视为错误。
 Value Evaluator::EnsureNumber(const Value& v) const {
+    // 把空值当作 0，其余非数字视为错误。
     if (v.is_number()) return v;
     if (v.is_empty()) return Value::Number(0.0);
     return Value::Error();
@@ -476,6 +639,7 @@ string Evaluator::NumberToString(double v) const {
 }
 
 string NormalizeFormulaInput(const string& raw) {
+    // 只规范化公式中的标识符大小写，字符串字面量保持原样。
     if (raw.empty() || raw[0] != '=') return raw;
 
     string normalized = raw;

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <QBrush>
-#include <QFont>
 #include <QString>
 #include <unordered_set>
 
@@ -22,8 +21,7 @@ const QVector<int>& ChangedRoles() {
         Qt::ToolTipRole,
         Qt::TextAlignmentRole,
         Qt::ForegroundRole,
-        Qt::BackgroundRole,
-        Qt::FontRole
+        Qt::BackgroundRole
     };
     return roles;
 }
@@ -31,7 +29,7 @@ const QVector<int>& ChangedRoles() {
 }  // namespace
 
 bool SpreadsheetModel::CellStyle::IsDefault() const {
-    return !has_foreground && !has_background && !bold && !italic && !has_alignment;
+    return !has_foreground && !has_background;
 }
 
 SpreadsheetModel::SpreadsheetModel(QObject* parent) : QAbstractTableModel(parent) {}
@@ -50,7 +48,29 @@ QVariant SpreadsheetModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid()) return {};
 
     emw::Address addr{index.row(), index.column()};
-    const CellStyle* style = cellStyle(index);
+    if (role == Qt::EditRole) {
+        return QString::fromStdString(grid_.GetRaw(addr));
+    }
+    if (role == Qt::ForegroundRole) {
+        const CellStyle* style = cellStyle(index);
+        if (style && style->has_foreground) {
+            return QBrush(style->foreground);
+        }
+    }
+    if (role == Qt::BackgroundRole) {
+        const CellStyle* style = cellStyle(index);
+        if (style && style->has_background) {
+            return QBrush(style->background);
+        }
+    }
+    if (role != Qt::DisplayRole &&
+        role != Qt::UserRole &&
+        role != Qt::UserRole + 1 &&
+        role != Qt::TextAlignmentRole &&
+        role != Qt::ToolTipRole) {
+        return {};
+    }
+
     const emw::EvaluatedCell evaluated = grid_.GetEvaluatedCell(addr);
     const emw::Value& value = evaluated.value;
     const bool has_error = evaluated.has_error;
@@ -59,36 +79,14 @@ QVariant SpreadsheetModel::data(const QModelIndex& index, int role) const {
         if (has_error) return QStringLiteral("#NA");
         return QString::fromStdString(value.to_string());
     }
-    if (role == Qt::EditRole) {
-        string raw = grid_.GetRaw(addr);
-        return QString::fromStdString(raw);
+    if (role == Qt::UserRole) {
+        return static_cast<int>(has_error ? emw::ValueType::Error : value.type);
+    }
+    if (role == Qt::UserRole + 1) {
+        return value.number;
     }
     if (role == Qt::TextAlignmentRole) {
-        if (style && style->has_alignment) {
-            return static_cast<int>(style->alignment);
-        }
-        if (!has_error && value.is_number()) {
-            return static_cast<int>(Qt::AlignRight | Qt::AlignVCenter);
-        }
         return static_cast<int>(Qt::AlignLeft | Qt::AlignVCenter);
-    }
-    if (role == Qt::ForegroundRole) {
-        if (style && style->has_foreground) {
-            return QBrush(style->foreground);
-        }
-    }
-    if (role == Qt::BackgroundRole) {
-        if (style && style->has_background) {
-            return QBrush(style->background);
-        }
-    }
-    if (role == Qt::FontRole) {
-        if (style && (style->bold || style->italic)) {
-            QFont font;
-            font.setBold(style->bold);
-            font.setItalic(style->italic);
-            return font;
-        }
     }
     if (role == Qt::ToolTipRole) {
         const QString raw = QString::fromStdString(grid_.GetRaw(addr));
@@ -149,9 +147,14 @@ void SpreadsheetModel::recalcAll() {
 }
 
 void SpreadsheetModel::loadFromGrid(emw::SpreadsheetGrid&& grid) {
+    unordered_map<int, CellStyle> styles;
+    loadFromGrid(move(grid), move(styles));
+}
+
+void SpreadsheetModel::loadFromGrid(emw::SpreadsheetGrid&& grid, unordered_map<int, CellStyle>&& styles) {
     beginResetModel();
     grid_ = move(grid);
-    styles_.clear();
+    styles_ = move(styles);
     endResetModel();
 }
 

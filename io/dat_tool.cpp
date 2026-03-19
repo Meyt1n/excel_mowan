@@ -4,12 +4,13 @@
 #include "table_file_io.h"
 
 #include "../core/spreadsheet.h"
-#include "../io/dat_file.h"
+#include "dat_file.h"
 
 using namespace std;
 
 
 int main(int argc, char** argv) {
+    // 命令行转换工具：支持 CSV -> DAT 与 DAT -> CSV。
     if (argc < 4) {
         cerr << "usage:\n";
         cerr << "  dat_tool.exe save input.csv output.dat\n";
@@ -17,11 +18,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    string cmd = argv[1];
+    string cmd = argv[1];       
     string in_path = argv[2];
     string out_path = argv[3];
 
     if (cmd == "save") {
+        // 读取 CSV，按当前 DAT 存储策略写出。
         emw::SpreadsheetGrid grid;
         int rows = 0;
         int cols = 0;
@@ -37,6 +39,7 @@ int main(int argc, char** argv) {
     }
 
     if (cmd == "load") {
+        // 读取 DAT，重算后导出为值视图 CSV。
         emw::SpreadsheetGrid grid;
         int rows = 0;
         int cols = 0;

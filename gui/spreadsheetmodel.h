@@ -13,6 +13,7 @@
 using namespace std;
 
 
+// SpreadsheetGrid 的 Qt 模型适配层，支持增量刷新。
 class SpreadsheetModel : public QAbstractTableModel {
 public:
     struct CellStyle {
@@ -20,10 +21,6 @@ public:
         QColor foreground;
         bool has_background = false;
         QColor background;
-        bool bold = false;
-        bool italic = false;
-        bool has_alignment = false;
-        Qt::Alignment alignment = Qt::AlignLeft | Qt::AlignVCenter;
 
         bool IsDefault() const;
     };
@@ -39,6 +36,7 @@ public:
     void clearAll();
     void recalcAll();
     void loadFromGrid(emw::SpreadsheetGrid&& grid);
+    void loadFromGrid(emw::SpreadsheetGrid&& grid, unordered_map<int, CellStyle>&& styles);
     void setCellStyle(const QModelIndex& index, const CellStyle& style);
     const CellStyle* cellStyle(const QModelIndex& index) const;
     vector<pair<emw::Address, CellStyle>> styledCells() const;
