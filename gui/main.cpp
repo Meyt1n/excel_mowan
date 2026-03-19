@@ -1,7 +1,10 @@
 #include <QApplication>
 #include <QFont>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QTranslator>
 
 #include "mainwindow.h"
 
@@ -11,6 +14,24 @@ int main(int argc, char** argv) {
     app.setApplicationName("Excel Mowan");
     app.setApplicationDisplayName("Excel Mowan");
     app.setStyle(QStyleFactory::create("Fusion"));
+
+    if (QLocale::system().language() == QLocale::Chinese) {
+        auto* qt_translator = new QTranslator(&app);
+        const QString translations_dir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+        const bool loaded =
+            qt_translator->load(QLocale::system(), QStringLiteral("qtbase"), QStringLiteral("_"), translations_dir) ||
+            qt_translator->load(
+                QLocale(QLocale::Chinese, QLocale::China),
+                QStringLiteral("qtbase"),
+                QStringLiteral("_"),
+                translations_dir
+            );
+        if (loaded) {
+            app.installTranslator(qt_translator);
+        } else {
+            delete qt_translator;
+        }
+    }
 
     QFont font("Microsoft YaHei UI", 10);
     app.setFont(font);

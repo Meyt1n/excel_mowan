@@ -31,6 +31,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -458,6 +459,21 @@ QColor PickBasicColor(QWidget* parent, const QColor& initial, const QString& tit
     layout->addLayout(grid);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    auto* custom_color_button = buttons->addButton(QStringLiteral("更多颜色..."), QDialogButtonBox::ActionRole);
+    QObject::connect(custom_color_button, &QPushButton::clicked, &dialog, [&]() {
+        const QColor base = selected.isValid() ? selected : initial;
+        QColorDialog picker(base, &dialog);
+        picker.setWindowTitle(title);
+        if (QLocale::system().language() == QLocale::Chinese) {
+            // 中文系统优先使用 Qt 内置对话框，便于应用中文翻译。
+            picker.setOption(QColorDialog::DontUseNativeDialog, true);
+        }
+        if (picker.exec() != QDialog::Accepted) return;
+        const QColor picked = picker.selectedColor();
+        if (!picked.isValid()) return;
+        selected = picked;
+        dialog.accept();
+    });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(buttons);
 
@@ -622,21 +638,23 @@ void MainWindow::SetupWindow() {
     formula_card->setObjectName("formulaCard");
     formula_card_ = formula_card;
     auto* formula_layout = new QHBoxLayout(formula_card);
-    formula_layout->setContentsMargins(16, 14, 16, 14);
-    formula_layout->setSpacing(12);
+    formula_layout->setContentsMargins(8, 6, 8, 6);
+    formula_layout->setSpacing(6);
 
     name_box_label_->setObjectName("nameBoxLabel");
-    name_box_label_->setAlignment(Qt::AlignCenter);
-    name_box_label_->setMinimumWidth(110);
+    name_box_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    name_box_label_->setMinimumWidth(104);
+    name_box_label_->setFixedHeight(30);
 
     auto* fx_label = new QLabel(QStringLiteral("fx"), formula_card);
     fx_label->setObjectName("fxLabel");
-    fx_label->setFixedWidth(38);
+    fx_label->setFixedWidth(24);
     fx_label->setAlignment(Qt::AlignCenter);
 
+    formula_bar_->setObjectName("formulaBarInput");
     formula_bar_->setPlaceholderText(DefaultFormulaPlaceholder());
-    formula_bar_->setClearButtonEnabled(true);
-    formula_bar_->setMinimumHeight(44);
+    formula_bar_->setClearButtonEnabled(false);
+    formula_bar_->setMinimumHeight(30);
 
     formula_layout->addWidget(name_box_label_);
     formula_layout->addWidget(fx_label);
@@ -647,16 +665,18 @@ void MainWindow::SetupWindow() {
     table_card_ = table_card;
     auto* table_layout = new QVBoxLayout(table_card);
     table_layout->setContentsMargins(16, 16, 16, 16);
-    table_layout->setSpacing(12);
+    table_layout->setSpacing(0);
 
     auto* info_row = new QHBoxLayout();
     info_row->setSpacing(10);
 
     selection_summary_label_->setObjectName("infoPill");
     selection_summary_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    selection_summary_label_->hide();
 
     shortcut_hint_label_->setObjectName("hintPill");
     shortcut_hint_label_->setAlignment(Qt::AlignCenter);
+    shortcut_hint_label_->hide();
 
     info_row->addWidget(selection_summary_label_, 1);
     info_row->addWidget(shortcut_hint_label_);
@@ -667,7 +687,6 @@ void MainWindow::SetupWindow() {
     layout->addWidget(formula_card);
     layout->addWidget(table_card, 1);
     setCentralWidget(root);
-    formula_card_->hide();
 
     setStyleSheet(
         "QMainWindow { background: #eef3ec; }"
@@ -677,14 +696,17 @@ void MainWindow::SetupWindow() {
         "QMenu { background: white; border: 1px solid #d7e3d8; padding: 6px; }"
         "QMenu::item { padding: 8px 22px; border-radius: 8px; }"
         "QMenu::item:selected { background: #dfeee0; }"
-        "QFrame#formulaCard, QFrame#tableCard { background: #fcfefd; border: 1px solid #d7e3d8; border-radius: 20px; }"
+        "QFrame#formulaCard { background: #f3f3f3; border: 1px solid #d0d0d0; border-radius: 4px; }"
+        "QFrame#tableCard { background: #fcfefd; border: 1px solid #d7e3d8; border-radius: 20px; }"
         "QLabel { color: #1f3425; }"
-        "QLabel#nameBoxLabel { background: #e8f3e8; color: #205629; border: 1px solid #c7ddc8; border-radius: 12px; padding: 10px 14px; font-weight: 700; }"
-        "QLabel#fxLabel { background: #217346; color: white; border-radius: 10px; font-weight: 700; }"
+        "QLabel#nameBoxLabel { background: white; color: #333333; border: 1px solid #c9c9c9; border-radius: 0px; padding: 4px 8px; font-weight: 600; }"
+        "QLabel#fxLabel { color: #777777; font-style: italic; font-weight: 700; }"
         "QLabel#infoPill, QLabel#hintPill { background: #f5faf4; color: #35533b; border: 1px solid #d9e8d9; border-radius: 999px; padding: 8px 14px; }"
         "QLineEdit, QComboBox, QPlainTextEdit { background: white; selection-background-color: #1f7a45; selection-color: white; }"
         "QLineEdit, QComboBox { border: 1px solid #cbdcca; border-radius: 12px; padding: 9px 14px; }"
         "QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus { border: 1px solid #217346; }"
+        "QLineEdit#formulaBarInput { border: 1px solid #c9c9c9; border-radius: 0px; padding: 4px 8px; background: #ffffff; }"
+        "QLineEdit#formulaBarInput:focus { border: 1px solid #8aa8c6; }"
         "QPlainTextEdit { border: 1px solid #d3dfd4; border-radius: 14px; padding: 10px 12px; }"
         "QTableView { background: white; border: none; gridline-color: #e4ece3; alternate-background-color: #f7fbf6; selection-background-color: #d8ead9; selection-color: #17311e; outline: none; }"
         "QTableView::item { padding: 4px 8px; }"
