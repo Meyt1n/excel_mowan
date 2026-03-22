@@ -89,6 +89,15 @@ private:
     void SetSelectedFillColor();
     void ClearSelectedFillColor();
     void SortSelectedRange(bool ascending);
+    void ShowFindDialog();
+    void ShowReplaceDialog();
+    QModelIndex FindNextMatch(const QString& needle, bool case_sensitive, bool* wrapped) const;
+    int ReplaceAllMatches(
+        const QString& needle,
+        const QString& replacement,
+        bool case_sensitive,
+        QModelIndex* first_changed
+    );
     void PlotSelectionWithPython(const QString& chart_type);
     QString ExportSelectionCsvForPlot(const QItemSelectionRange& range) const;
     QString ResolvePlotScriptPath() const;
@@ -114,6 +123,9 @@ private:
     int current_sheet_cols_ = 1;
     QColor last_text_color_;
     QColor last_fill_color_;
+    QString last_find_text_;
+    QString last_replace_text_;
+    bool last_find_case_sensitive_ = false;
     QModelIndex editing_index_;
     bool formula_editing_ = false;
     bool formula_reference_active_ = false;

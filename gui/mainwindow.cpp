@@ -5,6 +5,7 @@
 #include <QAbstractItemView>
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QCollator>
 #include <QColor>
@@ -98,6 +99,7 @@ QString BuildHelpGuideText() {
 - 设置字体颜色 / 清除字体颜色：设置文本显示颜色。
 - 设置填充颜色 / 清除填充颜色：设置单元格背景色。
 - 排序 A->Z / 排序 Z->A：按选区首列进行排序。
+- 查找 / 替换：Ctrl+F 查找下一个，Ctrl+H 全部替换。
 - 重新计算(F9)：强制重算当前表内公式。
 
 【公式】
@@ -751,6 +753,14 @@ void MainWindow::SetupMenuBar() {
     paste_action->setShortcut(QKeySequence::Paste);
     connect(paste_action, &QAction::triggered, this, &MainWindow::PasteFromClipboard);
 
+    auto* find_action = edit_menu->addAction(QStringLiteral("\u67e5\u627e..."));
+    find_action->setShortcut(QKeySequence::Find);
+    connect(find_action, &QAction::triggered, this, &MainWindow::ShowFindDialog);
+
+    auto* replace_action = edit_menu->addAction(QStringLiteral("\u66ff\u6362..."));
+    replace_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_H));
+    connect(replace_action, &QAction::triggered, this, &MainWindow::ShowReplaceDialog);
+
     edit_menu->addSeparator();
 
     auto* merge_cells_action = edit_menu->addAction(QStringLiteral("\u5408\u5e76\u5355\u5143\u683c"));
@@ -1179,6 +1189,283 @@ QString MainWindow::SelectionClipboardText() const {
     return rows.join('\n');
 }
 
+QModelIndex MainWindow::FindNextMatch(const QString& needle, bool case_sensitive, bool* wrapped) const {
+    if (wrapped) {
+        *wrapped = false;
+    }
+
+    if (needle.isEmpty()) return {};
+
+    const Qt::CaseSensitivity match_mode = case_sensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    vector<emw::Address> matches;
+    model_->grid().ForEachCell([&](const emw::Address& addr, const emw::Cell& cell) {
+        if (cell.raw.empty()) return;
+        const QString raw = QString::fromStdString(cell.raw);
+        if (raw.contains(needle, match_mode)) {
+            matches.push_back(addr);
+        }
+    });
+
+    if (matches.empty()) return {};
+
+    sort(matches.begin(), matches.end(), [](const emw::Address& lhs, const emw::Address& rhs) {
+        if (lhs.row != rhs.row) return lhs.row < rhs.row;
+        return lhs.col < rhs.col;
+    });
+
+    const QModelIndex current = table_->currentIndex();
+    const int current_row = current.isValid() ? current.row() : -1;
+    const int current_col = current.isValid() ? current.column() : -1;
+
+    auto it = find_if(matches.begin(), matches.end(), [current_row, current_col](const emw::Address& addr) {
+        if (addr.row != current_row) return addr.row > current_row;
+        return addr.col > current_col;
+    });
+
+    if (it == matches.end()) {
+        it = matches.begin();
+        if (wrapped) {
+            *wrapped = current.isValid();
+        }
+    }
+
+    return model_->index(it->row, it->col);
+}
+
+int MainWindow::ReplaceAllMatches(
+    const QString& needle,
+    const QString& replacement,
+    bool case_sensitive,
+    QModelIndex* first_changed
+) {
+    if (first_changed) {
+        *first_changed = {};
+    }
+    if (needle.isEmpty()) return 0;
+
+    const Qt::CaseSensitivity match_mode = case_sensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    vector<emw::Address> matches;
+    model_->grid().ForEachCell([&](const emw::Address& addr, const emw::Cell& cell) {
+        if (cell.raw.empty()) return;
+        const QString raw = QString::fromStdString(cell.raw);
+        if (raw.contains(needle, match_mode)) {
+            matches.push_back(addr);
+        }
+    });
+
+    if (matches.empty()) return 0;
+
+    sort(matches.begin(), matches.end(), [](const emw::Address& lhs, const emw::Address& rhs) {
+        if (lhs.row != rhs.row) return lhs.row < rhs.row;
+        return lhs.col < rhs.col;
+    });
+
+    int replaced_count = 0;
+    for (const emw::Address& addr : matches) {
+        const QModelIndex index = model_->index(addr.row, addr.col);
+        const QString raw = model_->data(index, Qt::EditRole).toString();
+        if (raw.isEmpty()) continue;
+
+        QString updated = raw;
+        updated.replace(needle, replacement, match_mode);
+        if (updated == raw) continue;
+
+        model_->setData(index, updated, Qt::EditRole);
+        replaced_count += raw.count(needle, match_mode);
+
+        if (first_changed && !first_changed->isValid()) {
+            *first_changed = index;
+        }
+    }
+
+    return replaced_count;
+}
+
+void MainWindow::ShowFindDialog() {
+    if (IsFormulaEditingMode()) {
+        CommitActiveFormulaEditToCell();
+    }
+    if (table_->HasInlineEditor()) {
+        table_->CommitInlineEditor();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("查找"));
+    dialog.setModal(true);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form_layout = new QFormLayout();
+    form_layout->setContentsMargins(0, 0, 0, 0);
+    form_layout->setSpacing(10);
+
+    auto* find_input = new QLineEdit(&dialog);
+    find_input->setPlaceholderText(QStringLiteral("输入要查找的文本"));
+    find_input->setText(last_find_text_);
+    form_layout->addRow(QStringLiteral("查找内容:"), find_input);
+
+    auto* case_checkbox = new QCheckBox(QStringLiteral("区分大小写"), &dialog);
+    case_checkbox->setChecked(last_find_case_sensitive_);
+    form_layout->addRow(QString(), case_checkbox);
+    layout->addLayout(form_layout);
+
+    auto* buttons = new QDialogButtonBox(&dialog);
+    auto* find_button = buttons->addButton(QStringLiteral("查找下一个"), QDialogButtonBox::AcceptRole);
+    buttons->addButton(QDialogButtonBox::Cancel);
+    find_button->setDefault(true);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    find_input->setFocus();
+    find_input->selectAll();
+
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const QString needle = find_input->text();
+    if (needle.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("查找"), QStringLiteral("请输入要查找的内容。"));
+        return;
+    }
+
+    const bool case_sensitive = case_checkbox->isChecked();
+    last_find_text_ = needle;
+    last_find_case_sensitive_ = case_sensitive;
+
+    bool wrapped = false;
+    const QModelIndex match = FindNextMatch(needle, case_sensitive, &wrapped);
+    if (!match.isValid()) {
+        statusBar()->showMessage(QStringLiteral("未找到匹配内容"), 2000);
+        QMessageBox::information(this, QStringLiteral("查找"), QStringLiteral("没有找到匹配内容。"));
+        return;
+    }
+
+    if (table_->selectionModel()) {
+        table_->selectionModel()->select(match, QItemSelectionModel::ClearAndSelect);
+    }
+    table_->setCurrentIndex(match);
+    table_->scrollTo(match, QAbstractItemView::PositionAtCenter);
+
+    const QString location = IndexReference(match);
+    if (wrapped) {
+        statusBar()->showMessage(QStringLiteral("已定位到 %1（从开头继续）").arg(location), 2400);
+    } else {
+        statusBar()->showMessage(QStringLiteral("已定位到 %1").arg(location), 1800);
+    }
+    UpdateSelectionInfo();
+}
+
+void MainWindow::ShowReplaceDialog() {
+    if (IsFormulaEditingMode()) {
+        CommitActiveFormulaEditToCell();
+    }
+    if (table_->HasInlineEditor()) {
+        table_->CommitInlineEditor();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("替换"));
+    dialog.setModal(true);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form_layout = new QFormLayout();
+    form_layout->setContentsMargins(0, 0, 0, 0);
+    form_layout->setSpacing(10);
+
+    auto* find_input = new QLineEdit(&dialog);
+    find_input->setPlaceholderText(QStringLiteral("输入要查找的文本"));
+    find_input->setText(last_find_text_);
+    form_layout->addRow(QStringLiteral("查找内容:"), find_input);
+
+    auto* replace_input = new QLineEdit(&dialog);
+    replace_input->setPlaceholderText(QStringLiteral("输入替换后的文本"));
+    replace_input->setText(last_replace_text_);
+    form_layout->addRow(QStringLiteral("替换为:"), replace_input);
+
+    auto* case_checkbox = new QCheckBox(QStringLiteral("区分大小写"), &dialog);
+    case_checkbox->setChecked(last_find_case_sensitive_);
+    form_layout->addRow(QString(), case_checkbox);
+    layout->addLayout(form_layout);
+
+    auto* buttons = new QDialogButtonBox(&dialog);
+    auto* find_next_button = buttons->addButton(QStringLiteral("查找下一个"), QDialogButtonBox::ActionRole);
+    auto* replace_all_button = buttons->addButton(QStringLiteral("全部替换"), QDialogButtonBox::AcceptRole);
+    buttons->addButton(QDialogButtonBox::Cancel);
+    replace_all_button->setDefault(true);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    connect(find_next_button, &QPushButton::clicked, &dialog, [this, find_input, case_checkbox]() {
+        const QString needle = find_input->text();
+        if (needle.isEmpty()) {
+            QMessageBox::information(this, QStringLiteral("替换"), QStringLiteral("请输入要查找的内容。"));
+            return;
+        }
+
+        const bool case_sensitive = case_checkbox->isChecked();
+        last_find_text_ = needle;
+        last_find_case_sensitive_ = case_sensitive;
+
+        bool wrapped = false;
+        const QModelIndex match = FindNextMatch(needle, case_sensitive, &wrapped);
+        if (!match.isValid()) {
+            statusBar()->showMessage(QStringLiteral("未找到匹配内容"), 2000);
+            QMessageBox::information(this, QStringLiteral("替换"), QStringLiteral("没有找到匹配内容。"));
+            return;
+        }
+
+        if (table_->selectionModel()) {
+            table_->selectionModel()->select(match, QItemSelectionModel::ClearAndSelect);
+        }
+        table_->setCurrentIndex(match);
+        table_->scrollTo(match, QAbstractItemView::PositionAtCenter);
+
+        const QString location = IndexReference(match);
+        if (wrapped) {
+            statusBar()->showMessage(QStringLiteral("已定位到 %1（从开头继续）").arg(location), 2400);
+        } else {
+            statusBar()->showMessage(QStringLiteral("已定位到 %1").arg(location), 1800);
+        }
+        UpdateSelectionInfo();
+    });
+
+    find_input->setFocus();
+    find_input->selectAll();
+
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const QString needle = find_input->text();
+    if (needle.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("替换"), QStringLiteral("请输入要查找的内容。"));
+        return;
+    }
+
+    const QString replacement = replace_input->text();
+    const bool case_sensitive = case_checkbox->isChecked();
+    last_find_text_ = needle;
+    last_replace_text_ = replacement;
+    last_find_case_sensitive_ = case_sensitive;
+
+    QModelIndex first_changed;
+    const int replaced = ReplaceAllMatches(needle, replacement, case_sensitive, &first_changed);
+    if (replaced <= 0) {
+        statusBar()->showMessage(QStringLiteral("没有可替换的匹配项"), 2000);
+        QMessageBox::information(this, QStringLiteral("替换"), QStringLiteral("没有可替换的匹配项。"));
+        return;
+    }
+
+    if (first_changed.isValid()) {
+        if (table_->selectionModel()) {
+            table_->selectionModel()->select(first_changed, QItemSelectionModel::ClearAndSelect);
+        }
+        table_->setCurrentIndex(first_changed);
+        table_->scrollTo(first_changed, QAbstractItemView::PositionAtCenter);
+    }
+
+    statusBar()->showMessage(QStringLiteral("已完成替换，共 %1 处").arg(replaced), 2600);
+    UpdateSelectionInfo();
+}
+
 QString MainWindow::ResolvePlotScriptPath() const {
     const QString relative_path = QStringLiteral("tools/plot_selection.py");
     const QString app_dir = QCoreApplication::applicationDirPath();
@@ -1493,6 +1780,8 @@ void MainWindow::ShowTableContextMenu(const QPoint& pos) {
     auto* cut_action = menu.addAction(QStringLiteral("\u526a\u5207"));
     auto* copy_action = menu.addAction(QStringLiteral("\u590d\u5236"));
     auto* paste_action = menu.addAction(QStringLiteral("\u7c98\u8d34"));
+    auto* find_action = menu.addAction(QStringLiteral("查找..."));
+    auto* replace_action = menu.addAction(QStringLiteral("替换..."));
     menu.addSeparator();
     auto* clear_action = menu.addAction(QStringLiteral("\u6e05\u9664\u5185\u5bb9"));
     auto* text_color_action = menu.addAction(QStringLiteral("设置字体颜色"));
@@ -1526,6 +1815,10 @@ void MainWindow::ShowTableContextMenu(const QPoint& pos) {
         CopySelectionToClipboard(false);
     } else if (chosen == paste_action) {
         PasteFromClipboard();
+    } else if (chosen == find_action) {
+        ShowFindDialog();
+    } else if (chosen == replace_action) {
+        ShowReplaceDialog();
     } else if (chosen == clear_action) {
         ClearSelectedCells();
     } else if (chosen == text_color_action) {
